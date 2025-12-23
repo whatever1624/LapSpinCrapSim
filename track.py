@@ -7,13 +7,14 @@ import numpy as np
 import scipy
 import shapely
 
-# Import LapSim project python files
+# Import project python files
 import utils
 
 
-def getLimitsDistances(limits):
-    """Returns the number of coordinates in the limits coordinate array and an array of the cumulative distances along the limits coordinates"""
-
+def getLimitsDistances(limits: np.ndarray) -> tuple[int, np.ndarray]:
+    """
+    Returns the number of coordinates in the limits coordinate array and an array of the cumulative distances along the limits coordinates
+    """
     n = np.size(limits, 0)
     distances = np.empty(n)
     distances[0] = 0
@@ -23,10 +24,12 @@ def getLimitsDistances(limits):
     return n, distances
 
 
-def getGateFromCoords(leftCoord, rightCoord, gateHalfWidth):
-    """Calculates the gate passing through the input coordinates with its midpoint at the midpoint of the input coordinates
-        Returns gate, gateMidpoint, gateDirection
-        leftCoord and rightCoord can be in the form [x, y] or [x, y, z]"""
+def getGateFromCoords(leftCoord: np.ndarray, rightCoord: np.ndarray, gateHalfWidth: float) -> tuple[shapely.LineString, np.ndarray, np.ndarray]:
+    """
+    Calculates the gate passing through the input coordinates with its midpoint at the midpoint of the input coordinates
+    Returns gate, gateMidpoint, gateDirection
+    leftCoord and rightCoord can be in the form [x, y] or [x, y, z]
+    """
     gateMidpoint = np.array([(leftCoord[0] + rightCoord[0]) / 2, (leftCoord[1] + rightCoord[1]) / 2])
     dx = rightCoord[0] - leftCoord[0]
     dy = rightCoord[1] - leftCoord[1]
@@ -39,17 +42,20 @@ def getGateFromCoords(leftCoord, rightCoord, gateHalfWidth):
     return gate, gateMidpoint, gateDirection
 
 
-def getGateExtendLine(gateMidpoint, gateDirection, leftExtendWidth, rightExtendWidth):
-    """Returns a Shapely LineString from the gate's intersection with leftExtend to the gate's intersection with rightExtend"""
+def getGateExtendLine(gateMidpoint: np.ndarray, gateDirection: np.ndarray, leftExtendWidth: float, rightExtendWidth: float) -> shapely.LineString:
+    """
+    Returns a Shapely LineString from the gate's intersection with leftExtend to the gate's intersection with rightExtend
+    """
     extendLineLeft = gateMidpoint + ([-gateDirection[1] * leftExtendWidth, gateDirection[0] * leftExtendWidth])
     extendLineRight = gateMidpoint + ([gateDirection[1] * rightExtendWidth, -gateDirection[0] * rightExtendWidth])
     extendLine = shapely.LineString([extendLineLeft, extendLineRight])
     return extendLine
 
 
-def getReducedLimitsClosed(limits, indexes, nLimits, distances, prevDist, gateStep, reducedWindow):
-    """Returns the coordinate array and distance array of the reduced left/right limits (corresponding to the side passed through)
-        for the window specified"""
+def getReducedLimitsClosed(limits: np.ndarray, indexes: np.ndarray, nLimits: int, distances: np.ndarray, prevDist: float, gateStep: float, reducedWindow: float) -> tuple[np.ndarray, list[float]]:
+    """
+    Returns the coordinate array and distance array of the reduced left/right limits (corresponding to the side passed through) for the window specified
+    """
     # Sets the window to be length (2 * reducedWindow), centred around the point of expected intersection of the gate and limits
     distStart = utils.wrap(prevDist + gateStep - reducedWindow, 0, distances[-1])
     reducedDist = [distStart]
@@ -84,9 +90,11 @@ def getReducedLimitsClosed(limits, indexes, nLimits, distances, prevDist, gateSt
     return reducedLimitsCoords, reducedDist
 
 
-def getLimitsExtendWidthClosed(gate, gateMidpoint, limitsExtend, nLimitsExtend, prevIndex, gateHalfWidth):
-    """Calculates the distance to the leftExtend/rightExtend coordinate array
-        Returns extendWidth, prevIndex"""
+def getLimitsExtendWidthClosed(gate: shapely.LineString, gateMidpoint: np.ndarray, limitsExtend: np.ndarray, nLimitsExtend: float, prevIndex: int, gateHalfWidth: float) -> tuple[float, int]:
+    """
+    Calculates the distance to the leftExtend/rightExtend coordinate array
+    Returns extendWidth, prevIndex
+    """
     gateMidpointPoint = shapely.Point(gateMidpoint)
     gateCoords = gate.xy
 
@@ -124,8 +132,10 @@ def getLimitsExtendWidthClosed(gate, gateMidpoint, limitsExtend, nLimitsExtend, 
     return gateHalfWidth, prevIndex
 
 
-def getLimitsWidths(gate, gateMidpoint, reducedLeft, reducedRight):
-    """Calculates and returns leftWidth, rightWidth"""
+def getLimitsWidths(gate: shapely.LineString, gateMidpoint: np.ndarray, reducedLeft: shapely.LineString, reducedRight: shapely.LineString) -> tuple[float, float]:
+    """
+    Calculates and returns leftWidth, rightWidth
+    """
     gateMidpointPoint = shapely.Point(gateMidpoint)
 
     leftWidth = gateMidpointPoint.distance(reducedLeft.intersection(gate))
@@ -134,13 +144,12 @@ def getLimitsWidths(gate, gateMidpoint, reducedLeft, reducedRight):
     return leftWidth, rightWidth
 
 
-def calcGate(params: list[float],
-             prevGateMidpoint: np.ndarray[float, np.dtype[float]],
-             prevGateDirection: np.ndarray[float, np.dtype[float]],
-             gateHalfWidth: float, gateStep: float,
-             reducedLeft: shapely.LineString, reducedRight: shapely.LineString) -> tuple[shapely.LineString, np.ndarray[float, np.dtype[float]], np.ndarray[float, np.dtype[float]], float, float]:
-    """Calculates the gateMidpoint, gateDirection, gate LineString object, leftWidth and rightWidth
-        Returns gate, gateMidpoint, gateDirection, leftWidth, rightWidth"""
+def calcGate(params: list[float], prevGateMidpoint: np.ndarray, prevGateDirection: np.ndarray, gateHalfWidth: float, gateStep: float,
+             reducedLeft: shapely.LineString, reducedRight: shapely.LineString) -> tuple[shapely.LineString, np.ndarray, np.ndarray, float, float]:
+    """
+    Calculates the gateMidpoint, gateDirection, gate LineString object, leftWidth and rightWidth
+    Returns gate, gateMidpoint, gateDirection, leftWidth, rightWidth
+    """
     psi = params[0]  # gateHeading (angle from previous gate direction, positive anti-clockwise)
     theta = params[1]  # gateAngle (angle from psi/gateHeading, positive anti-clockwise)
 
@@ -165,20 +174,23 @@ def calcGate(params: list[float],
     return gate, gateMidpoint, gateDirection, leftWidth, rightWidth
 
 
-def gateObjFunc(params: list[float], prevGateMidpoint: np.ndarray[float, np.dtype[float]], prevGateDirection: np.ndarray[float, np.dtype[float]],
+def gateObjFunc(params: list[float], prevGateMidpoint: np.ndarray, prevGateDirection: np.ndarray,
                 gateHalfWidth: float, gateStep: float, reducedLeft: shapely.LineString, reducedRight: shapely.LineString) -> float:
-    """Returns leftWidth + rightWidth + abs(leftWidth - rightWidth)"""
-
+    """
+    Objective function for the gate placement optimisation to be in the middle of the track and with the smallest width
+    Returns leftWidth + rightWidth + abs(leftWidth - rightWidth)
+    """
     gate, gateMidpoint, gateDirection, leftWidth, rightWidth = calcGate(params, prevGateMidpoint, prevGateDirection, gateHalfWidth, gateStep, reducedLeft, reducedRight)
-
     if leftWidth == gateHalfWidth or rightWidth == gateHalfWidth:
         return 2 * gateHalfWidth + abs(leftWidth - rightWidth)
     else:
         return leftWidth + rightWidth + abs(leftWidth - rightWidth)
 
 
-def getGateLimitsIntersectionDistance(gate, reducedLimitsCoords, reducedDist, distances, isLeft):
-    """Returns the distance along the left/right coordinate array (whichever is passed through) of the intersection with the gate"""
+def getGateLimitsIntersectionDistance(gate: shapely.LineString, reducedLimitsCoords: np.ndarray, reducedDist: list[float], distances: np.ndarray, isLeft: bool) -> float:
+    """
+    Returns the distance along the coordinate array of the intersection with the gate
+    """
     # Iterates through each segment in the reduced limits coordinate array
     for i in range(len(reducedDist) - 1):
         # Creates a segment from adjacent points in the reduced limits coordinate array and checks if the segment intersects the gate
@@ -214,11 +226,11 @@ def getGateLimitsIntersectionDistance(gate, reducedLimitsCoords, reducedDist, di
 
 
 class Track:
-    def __init__(self, left: list[list[float]] | np.ndarray[tuple[float, float, float], np.dtype[float]], right: list[list[float]] | np.ndarray[tuple[float, float, float], np.dtype[float]],
-                 leftExtend: list[list[float]] | np.ndarray[tuple[float, float, float], np.dtype[float]]=None, rightExtend: list[list[float]] | np.ndarray[tuple[float, float, float], np.dtype[float]]=None,
-                 startLineCoords: list[list[float]] | np.ndarray[tuple[float, float], np.dtype[float]]=None,
-                 finishLineCoords: list[list[float]] | np.ndarray[tuple[float, float], np.dtype[float]]=None,
-                 isClosed: bool=None, gateStep: float=10) -> None:
+    def __init__(self,
+                 left: list[list[float]] | np.ndarray, right: list[list[float]] | np.ndarray,
+                 leftExtend: list[list[float]] | np.ndarray | None = None, rightExtend: list[list[float]] | np.ndarray | None = None,
+                 startLineCoords: list[list[float]] | np.ndarray | None = None, finishLineCoords: list[list[float]] | np.ndarray | None = None,
+                 isClosed: bool = None, gateStep: float = 10) -> None:
         print("Initialising track")
 
         # Constants (subject to change though)
@@ -358,7 +370,7 @@ class Track:
             params = scipy.optimize.minimize(gateObjFunc, [0, 0],
                                              (gateMidpoint, gateDirection, gateHalfWidth, gateStep, reducedLeft, reducedRight),
                                              method='Powell').x
-            # Experiment with different minimize methods to see which is faster and also accuracy - ones that solved successfully:
+            # Experiment with different scipy minimize methods to see which is faster and also accuracy - ones that solved successfully:
             #   'Nelder-Mead'   20.256154368287984
             #   'Powell'        20.254838726180974
             #   'L-BFGS-B'      20.25543032184799
@@ -538,7 +550,10 @@ class Track:
 
 
     def getZ(self, x: float, y: float) -> float:
-        """Calculates the z height of the track at the input x and y coordinates - simple implementation using the interpolation maps"""
+        """
+        Calculates the z height of the track at the input x and y coordinates - simple implementation using the interpolation maps
+        TODO: Robust approach for z height to work with figure-8 tracks like Suzuka
+        """
         # Try linear interpolation first
         z = self.zLinInterp(x, y)
 

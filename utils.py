@@ -1,4 +1,4 @@
-"""Collection of helper functions commonly used by LapSim modules"""
+"""Collection of helper functions commonly used by the other modules"""
 
 # Import packages
 import time
@@ -6,10 +6,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy
 import shapely
+from numpy import ndarray
 
 # Import LapSim project python files
-from Track import Track
-from Trajectory import Trajectory
+from track import Track
+from trajectory import Trajectory
 
 globalOptProgressDict = {'NumEvals': 0, 'EvalResults': [], 'BestResults': []}
 globalPlotsDict = {'Fig': plt.figure(), 'TrackTrajDict': {}, 'OptProgressDict': {}, 'LapSimProgressDict': {}}
@@ -23,32 +24,44 @@ lapSimProgressPlotArtists = []
 
 
 def wrap(x: float | np.ndarray, lowerBound: float, upperBound: float) -> float | np.ndarray:
-    """Wraps x around the lower and upper bounds
-        Supports NumPy arrays as arguments
-        Note: Lower bound is inclusive, upper bound is exclusive"""
+    """
+    Wraps x around the lower and upper bounds
+    Supports NumPy arrays as arguments
+    Note: Lower bound is inclusive, upper bound is exclusive
+    """
     return lowerBound + ((x - lowerBound) % (upperBound - lowerBound))
 
 
 def sideOfLine(xp: float, yp: float, x1: float, y1: float, x2: float, y2: float) -> float:
-    """Returns 0 if all points are colinear; > 0 if point p is on the right of the line; < 0 if point p is on the left of the line"""
+    """
+    xp and yp are the x and y coordinates of the point
+    x1 and y1 are the x and y coordinates of the start of the line
+    x2 and y2 are the x and y coordiantes of the end of the line
+    Returns:
+        0 if all points are colinear
+        >0 if point p is on the right of the line
+        <0 if point p is on the left of the line
+    """
     return ((xp - x1) * (y2 - y1)) - ((yp - y1) * (x2 - x1))
 
 
-def rotateVector2D(vector: np.ndarray, theta: float) -> np.ndarray[float, np.dtype[float]]:
-    """Returns the vector rotated anti-clockwise by theta radians
-        Vector must be in the form [x, y]"""
-    c, s = np.cos(theta), np.sin(theta)
-
-    vectorRotated = np.empty(2)
-    vectorRotated[0] = (c * vector[0]) - (s * vector[1])
-    vectorRotated[1] = (s * vector[0]) + (c * vector[1])
-
+def rotateVector2D(vector: np.ndarray, theta: float) -> np.ndarray:
+    """
+    vector in the form [x,y] and theta in radians, anti-clockwise
+    Returns the vector rotated anti-clockwise by theta radians
+    """
+    c = np.cos(theta)
+    s = np.sin(theta)
+    vectorRotated = np.array(((c * vector[0]) - (s * vector[1]),
+                              (s * vector[0]) + (c * vector[1])))
     return vectorRotated
 
 
 def getAxsIndex(axsName: str) -> int:
-    """Returns the index for the axs, so that the axes are in order and none are skipped
-        axsName must be one of 'TrackTraj', 'OptProgress', 'LapSimProgress'"""
+    """
+    Returns the index for the axs, so that the axes are in order and none are skipped
+    axsName must be one of 'TrackTraj', 'OptProgress', 'LapSimProgress'
+    """
     if axsName == 'TrackTraj':
         return 0
     elif axsName == 'OptProgress':
@@ -60,12 +73,16 @@ def getAxsIndex(axsName: str) -> int:
 
 
 def updateTrack(track: Track) -> None:
-    """Updates the Track object stored in globalPlotsDict"""
+    """
+    Updates the Track object stored in globalPlotsDict
+    """
     globalPlotsDict['TrackTrajDict']['Track'] = track
 
 
 def refreshPlot() -> None:
-    """Clears plot then re-plots everything based on the data in globalPlotsDict"""
+    """
+    Clears plot then re-plots everything based on the data in globalPlotsDict
+    """
     global globalPlotsDict
 
     trackTrajDict = globalPlotsDict['TrackTrajDict']
@@ -107,9 +124,11 @@ def refreshPlot() -> None:
 
 
 def plotTrack() -> None:
-    """Removes any old track-related plot artists
-        Plots the track in the live plot based on the Track object stored in globalPlotsDict
-        Updates the plot dictionary with the new plot artists"""
+    """
+    Removes any old track-related plot artists
+    Plots the track in the live plot based on the Track object stored in globalPlotsDict
+    Updates the plot dictionary with the new plot artists
+    """
     global globalPlotsDict
 
     ax = globalPlotsDict['Fig'].get_axes()[getAxsIndex('TrackTraj')]
@@ -171,8 +190,10 @@ def plotTrack() -> None:
 
 
 def plotTraj() -> None:
-    """Removes any old track-related plot artists and plots the trajectory in the live plot
-        Also updates the plot dictionary with the new artists plotted"""
+    """
+    Removes any old track-related plot artists and plots the trajectory in the live plot
+    Also updates the plot dictionary with the new artists plotted
+    """
     axsIndex = getAxsIndex('TrackTraj')
     trackTrajDict = globalPlotsDict['TrackTrajDict']
     trajectory: Trajectory | None = trackTrajDict.get('Trajectory', None)   # Type hint just here so PyCharm knows "if track" condition can be true
@@ -184,6 +205,7 @@ def plotTraj() -> None:
 
     if trajectory:
         ...
+        print("IDK WHAT THE TRAJECTORY PLOTTING IS")
     else:
         print("No Trajectory object in globalPlotsDict['TrackTrajDict']")
 

@@ -1,7 +1,4 @@
-"""Would be the main place to configure and run the lap sim
-    However currently just being used as a sandbox to test the lap sim modules
-
-    *Clean up imported packages - remove unused imports and also check other modules to remove their unused packages"""
+"""Main place to configure and run the lap sim - However, currently just being used as a sandbox to test the lap sim modules"""
 
 # Import packages
 import time
@@ -10,10 +7,10 @@ import numpy as np
 import scipy
 import shapely
 
-# Import LapSim project python files
+# Import project python files
 import utils
-from Track import Track
-from Trajectory import Trajectory
+from track import Track
+from trajectory import Trajectory
 
 
 """left = [[1, 2, 3], [0, 2, 4]]
@@ -22,7 +19,7 @@ leftEx = [[-0.2, 0, 1], [-0.1, 2, 2]]
 rightEx = [[1.1, 0, 7], [1.15, 1, 7.5], [1.2, 2, 8]]"""
 
 
-def generateTrackLimits(straightLength, cornerRadius, trackWidth):
+def generateTrackLimits(straightLength: float, cornerRadius: float, trackWidth: float) -> tuple[np.ndarray, np.ndarray]:
     """Anti-clockwise oval with 2 corners"""
     straightStep = 5
     cornerPoints = 15

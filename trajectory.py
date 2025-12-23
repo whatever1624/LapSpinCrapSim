@@ -7,13 +7,13 @@ import numpy as np
 import scipy
 import shapely
 
-# Import LapSim project python files
+# Import project python files
 import utils
-from Track import Track
+from track import Track
 
 
 class Trajectory:
-    def __init__(self, trajType: str, track: Track, CP: list[list[float]] | np.ndarray[tuple[float, float], np.dtype[float]], sDelta: float, degree: int=3) -> None:
+    def __init__(self, trajType: str, track: Track, CP: list[list[float]] | np.ndarray, sDelta: float, degree: int = 3) -> None:
         # Check that trajectory type is valid and finishGate is passed if required
         allowedTypes = ['Closed Circuit', 'Point to Point', 'Point to Point with Run Up', 'Single Lap']
         if trajType in allowedTypes:
@@ -50,7 +50,7 @@ class Trajectory:
         # Calculate total distance from start gate to finish gate, offset cumulative distance array so it's 0 at the start line
         # and wrap distances if the trajectory is 'Closed Circuit'
 
-        # Discretize the trajectory spline with discretization step as close to sDelta as possible
+        # Discretise the trajectory spline with discretisation step as close to sDelta as possible
 
         # Calculate trajectory slope, dSlope_ds, camber, curvature (probably helps if i calculate trajectory direction vector and normal vector first)
 
