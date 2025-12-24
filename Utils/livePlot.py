@@ -1,4 +1,6 @@
-"""Collection of helper functions commonly used by the other modules"""
+"""
+Module for live plotting of the lap sim progress and optimisation progress.
+"""
 
 # Import packages
 import time
@@ -6,16 +8,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy
 import shapely
-from numpy import ndarray
 
-# Import LapSim project python files
+# Import project python files
+from typeAliases import *
 from track import Track
 from trajectory import Trajectory
 
+# Plotting variables
 globalOptProgressDict = {'NumEvals': 0, 'EvalResults': [], 'BestResults': []}
 globalPlotsDict = {'Fig': plt.figure(), 'TrackTrajDict': {}, 'OptProgressDict': {}, 'LapSimProgressDict': {}}
 globalPltPauseDuration = 0.01   # Duration to pause for the matplotlib GUI to update
-
 trackTrajBuffer = 20            # Buffer around the track edges
 trackPlotArtists = ['LeftLines', 'RightLines', 'LeftExtendLines', 'RightExtendLines', 'StartLine', 'FinishLine']
 trajPlotArtists = ['ControlPoints', 'TrajectoryLines', 'TrackLimitsLinesList']
@@ -23,44 +25,18 @@ optProgressPlotArtists = ['ProgressLine', 'BestLine']
 lapSimProgressPlotArtists = []
 
 
-def wrap(x: float | np.ndarray, lowerBound: float, upperBound: float) -> float | np.ndarray:
-    """
-    Wraps x around the lower and upper bounds
-    Supports NumPy arrays as arguments
-    Note: Lower bound is inclusive, upper bound is exclusive
-    """
-    return lowerBound + ((x - lowerBound) % (upperBound - lowerBound))
-
-
-def sideOfLine(xp: float, yp: float, x1: float, y1: float, x2: float, y2: float) -> float:
-    """
-    xp and yp are the x and y coordinates of the point
-    x1 and y1 are the x and y coordinates of the start of the line
-    x2 and y2 are the x and y coordiantes of the end of the line
-    Returns:
-        0 if all points are colinear
-        >0 if point p is on the right of the line
-        <0 if point p is on the left of the line
-    """
-    return ((xp - x1) * (y2 - y1)) - ((yp - y1) * (x2 - x1))
-
-
-def rotateVector2D(vector: np.ndarray, theta: float) -> np.ndarray:
-    """
-    vector in the form [x,y] and theta in radians, anti-clockwise
-    Returns the vector rotated anti-clockwise by theta radians
-    """
-    c = np.cos(theta)
-    s = np.sin(theta)
-    vectorRotated = np.array(((c * vector[0]) - (s * vector[1]),
-                              (s * vector[0]) + (c * vector[1])))
-    return vectorRotated
-
-
 def getAxsIndex(axsName: str) -> int:
     """
-    Returns the index for the axs, so that the axes are in order and none are skipped
-    axsName must be one of 'TrackTraj', 'OptProgress', 'LapSimProgress'
+    Returns the index for the axs corresponding to the axes name.
+
+    Args:
+        axsName: One of the strings 'TrackTraj', 'OptProgress', 'LapSimProgress' representing the name of the axes.
+
+    Returns:
+        Index for the axs corresponding to the axes name.
+
+    Raises:
+        Exception: 'axsName' is not a value axes name. Valid axes names are ['TrackTraj', 'OptProgress', 'LapSimProgress'].
     """
     if axsName == 'TrackTraj':
         return 0
@@ -69,19 +45,22 @@ def getAxsIndex(axsName: str) -> int:
     elif axsName == 'LapSimProgress':
         return 2 if globalPlotsDict['TrackTrajDict'] and globalPlotsDict['OptProgressDict'] else 1 if globalPlotsDict['TrackTrajDict'] or globalPlotsDict['OptProgressDict'] else 0
     else:
-        raise Exception("\'" + axsName + "\' is not a valid axes name. Valid axes names are " + str(['TrackTraj', 'OptProgress', 'LapSimProgress']))
+        raise Exception("\'" + axsName + "\' is not a valid axes name. Valid axes names are " + str(['TrackTraj', 'OptProgress', 'LapSimProgress']) + ".")
 
 
 def updateTrack(track: Track) -> None:
     """
-    Updates the Track object stored in globalPlotsDict
+    Updates the Track object stored in globalPlotsDict to the new Track object passed in.
+
+    Args:
+        track: New Track object to replace the old Track object stored in globalPlotsDict.
     """
     globalPlotsDict['TrackTrajDict']['Track'] = track
 
 
 def refreshPlot() -> None:
     """
-    Clears plot then re-plots everything based on the data in globalPlotsDict
+    Clears plot then re-plots everything based on the data in globalPlotsDict.
     """
     global globalPlotsDict
 
@@ -125,9 +104,8 @@ def refreshPlot() -> None:
 
 def plotTrack() -> None:
     """
-    Removes any old track-related plot artists
-    Plots the track in the live plot based on the Track object stored in globalPlotsDict
-    Updates the plot dictionary with the new plot artists
+    Removes any old track-related plot artists, plots the track in the live plot based on the Track object stored in globalPlotsDict,
+    then updates the plot dictionary with the new plot artists.
     """
     global globalPlotsDict
 
@@ -164,7 +142,6 @@ def plotTrack() -> None:
         trackTrajDict['LeftLines'] = ax.plot(left[:, 0], left[:, 1], c='k')
         trackTrajDict['RightLines'] = ax.plot(right[:, 0], right[:, 1], c='k')
 
-
         # DEBUG - Plot gates (both from left/right and leftExtend/rightExtend)
         for i in range(np.size(track.gates)):
             ax.plot([leftExtend[i, 0], rightExtend[i, 0]], [leftExtend[i, 1], rightExtend[i, 1]], c='C3')
@@ -191,12 +168,11 @@ def plotTrack() -> None:
 
 def plotTraj() -> None:
     """
-    Removes any old track-related plot artists and plots the trajectory in the live plot
-    Also updates the plot dictionary with the new artists plotted
+    Removes any old track-related plot artists and plots the trajectory in the live plot, then updates the plot dictionary with the new artists plotted.
     """
     axsIndex = getAxsIndex('TrackTraj')
     trackTrajDict = globalPlotsDict['TrackTrajDict']
-    trajectory: Trajectory | None = trackTrajDict.get('Trajectory', None)   # Type hint just here so PyCharm knows "if track" condition can be true
+    trajectory: Trajectory | None = trackTrajDict.get('Trajectory', None)  # Type hint just here so PyCharm knows "if track" condition can be true
 
     # Remove old plot artists
     for key in list(trackTrajDict.keys()):
@@ -211,8 +187,10 @@ def plotTraj() -> None:
 
 
 def plotOptProgress() -> None:
-    """Removes any old optimisation progress-related plot artists and plots the optimisation progress in the live plot
-        Also updates the plot dictionary with the new artists plotted"""
+    """
+    Removes any old optimisation progress-related plot artists and plots the optimisation progress in the live plot,
+    then updates the plot dictionary with the new artists plotted.
+    """
     axsIndex = getAxsIndex('OptProgress')
     optProgressDict = globalPlotsDict['OptProgressDict']
 
@@ -223,9 +201,11 @@ def plotOptProgress() -> None:
 
 
 def plotLapSimProgress() -> None:
-    """Removes any old lap sim progress-related plot artists and plots the lap sim progress in the live plot
-        idk what this will be or if it'll even be needed i've not even made the lap sim
-        MAKE SURE TO CHECK REFRESHPLOT() AND MAKE SURE IT DOESN'T CLEAR ANY LAPSIM RESULTS OBJECT OR SMTH IF THAT'S IMPORTANT"""
+    """
+    Removes any old lap sim progress-related plot artists and plots the lap sim progress in the live plot
+    idk what this will be or if it'll even be needed i've not even made the lap sim
+    MAKE SURE TO CHECK REFRESHPLOT() AND MAKE SURE IT DOESN'T CLEAR ANY LAPSIM RESULTS OBJECT OR SMTH IF THAT'S IMPORTANT
+    """
     axsIndex = getAxsIndex('LapSimProgress')
     lapSimProgressDict = globalPlotsDict['LapSimProgressDict']
 

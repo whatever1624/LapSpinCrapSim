@@ -1,17 +1,15 @@
-"""Main place to configure and run the lap sim - However, currently just being used as a sandbox to test the lap sim modules"""
+"""
+Main place to configure and run the lap sim. However, currently just being used as a sandbox to test the lap sim modules.
+"""
 
 # Import packages
-import time
 import matplotlib.pyplot as plt
 import numpy as np
-import scipy
-import shapely
 
 # Import project python files
-import utils
+from Utils.typeAliases import *
+from Utils import utils
 from track import Track
-from trajectory import Trajectory
-
 
 """left = [[1, 2, 3], [0, 2, 4]]
 right = [[3, 4, 5], [1, 1, 5.5], [1, 2, 6]]
@@ -19,7 +17,9 @@ leftEx = [[-0.2, 0, 1], [-0.1, 2, 2]]
 rightEx = [[1.1, 0, 7], [1.15, 1, 7.5], [1.2, 2, 8]]"""
 
 
-def generateTrackLimits(straightLength: float, cornerRadius: float, trackWidth: float) -> tuple[np.ndarray, np.ndarray]:
+def generateTrackLimits(straightLength: float,
+                        cornerRadius: float,
+                        trackWidth: float) -> tuple[NDArrayFloat2D, NDArrayFloat2D]:
     """Anti-clockwise oval with 2 corners"""
     straightStep = 5
     cornerPoints = 15

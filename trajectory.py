@@ -1,19 +1,23 @@
-"""Trajectory class and its related functions"""
+"""
+Trajectory class and its related functions. The Trajectory object defines the trajectory on which a lap sim can be run.
+"""
 
 # Import packages
-import time
-import matplotlib.pyplot as plt
 import numpy as np
 import scipy
-import shapely
 
 # Import project python files
-import utils
+from Utils.typeAliases import *
 from track import Track
 
 
 class Trajectory:
-    def __init__(self, trajType: str, track: Track, CP: list[list[float]] | np.ndarray, sDelta: float, degree: int = 3) -> None:
+    def __init__(self,
+                 trajType: str,
+                 track: Track,
+                 CP: list[list[float]] | NDArrayFloat2D,
+                 sDelta: float,
+                 degree: int = 3) -> None:
         # Check that trajectory type is valid and finishGate is passed if required
         allowedTypes = ['Closed Circuit', 'Point to Point', 'Point to Point with Run Up', 'Single Lap']
         if trajType in allowedTypes:
