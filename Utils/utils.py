@@ -14,16 +14,6 @@ from typeAliases import *
 from track import Track
 from trajectory import Trajectory
 
-# Plotting variables
-globalOptProgressDict = {'NumEvals': 0, 'EvalResults': [], 'BestResults': []}
-globalPlotsDict = {'Fig': plt.figure(), 'TrackTrajDict': {}, 'OptProgressDict': {}, 'LapSimProgressDict': {}}
-globalPltPauseDuration = 0.01   # Duration to pause for the matplotlib GUI to update
-trackTrajBuffer = 20            # Buffer around the track edges
-trackPlotArtists = ['LeftLines', 'RightLines', 'LeftExtendLines', 'RightExtendLines', 'StartLine', 'FinishLine']
-trajPlotArtists = ['ControlPoints', 'TrajectoryLines', 'TrackLimitsLinesList']
-optProgressPlotArtists = ['ProgressLine', 'BestLine']
-lapSimProgressPlotArtists = []
-
 
 def wrap(x: float | NDArrayFloat1D | NDArrayFloat2D,
          lowerBound: float,

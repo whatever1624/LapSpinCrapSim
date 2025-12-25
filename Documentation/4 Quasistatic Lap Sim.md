@@ -22,16 +22,17 @@ equals 0 → so a root finding algorithm can be used which should be faster than
 
 **Vehicle States Dictionary**
 
+Contains:
+
+- All vehicle states from the vehicle model
+
 **Results Dictionary**
 
-| *Key* | *Value* |
-| --- | --- |
-| Time |  |
-| Distance |  |
+Contains:
 
-+ all the keys in [**Vehicle States Dictionary**](https://www.notion.so/Vehicle-States-Dictionary-251e66e2bd3a8042a499d13ab916ed6a?pvs=21), where each key’s value is an array with each item corresponding to each time/distance value
-
-also include track properties? z height, slope, front/rear track camber - so the lap sim result can be passed straight to the ride/aero sim
+- All vehicle states from the vehicle model
+- Post-processed channels
+- Track properties required to run the dynamic post-processor (or maybe it would be better to omit this and just pass in the Trajectory object)
 
 ---
 

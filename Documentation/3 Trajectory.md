@@ -40,7 +40,7 @@ However the current approach causes problems with gradient descent since the “
 | XYZ | 3D NumPy array | Trajectory points in [x, y, z] coordinate form corresponding to the *s* array |
 | curvature | NumPy array | (Signed) curvature at each trajectory point corresponding to the *s* array (where positive means left hand corner and negative means right hand corner) |
 | valid | NumPy array | Booleans whether the trajectory point is within track limits (True) or not (False) corresponding to the *s* array |
-| sInvalid | Float | Length of track limits violated |
+| sInvalid | Float | Length of track limits violated - CHANGE THIS TO AREA OF TRACK LIMITS VIOLATION |
 
 ## __init__()
 

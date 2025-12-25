@@ -15,7 +15,6 @@ from track import Track
 from trajectory import Trajectory
 
 # Plotting variables
-globalOptProgressDict = {'NumEvals': 0, 'EvalResults': [], 'BestResults': []}
 globalPlotsDict = {'Fig': plt.figure(), 'TrackTrajDict': {}, 'OptProgressDict': {}, 'LapSimProgressDict': {}}
 globalPltPauseDuration = 0.01   # Duration to pause for the matplotlib GUI to update
 trackTrajBuffer = 20            # Buffer around the track edges

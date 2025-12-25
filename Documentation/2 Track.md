@@ -87,10 +87,10 @@ A * indicates the input is optional
 
 | *Name* | *Type* | *Description* |
 | --- | --- | --- |
-| left | 3D list or 3D NumPy array | Track limits left edge points in [x, y, z] coordinate form |
-| right | 3D list or 3D NumPy array | Track limits right edge points in [x, y, z] coordinate form |
-| *leftExtend | 3D list or 3D NumPy array | Track extend left edge points in [x, y, z] coordinate form (defaults to None - if None then sets leftExtend = left) |
-| *rightExtend | 3D list or 3D NumPy array | Track extend right edge points in [x, y, z] coordinate form (defaults to None - if None then sets rightExtend = right) |
+| left | 2D list or 2D NumPy array | Track limits left edge points in [x, y, z] coordinate form |
+| right | 2D list or 2D NumPy array | Track limits right edge points in [x, y, z] coordinate form |
+| *leftExtend | 2D list or 2D NumPy array | Track extend left edge points in [x, y, z] coordinate form (defaults to None - if None then sets leftExtend = left) |
+| *rightExtend | 2D list or 2D NumPy array | Track extend right edge points in [x, y, z] coordinate form (defaults to None - if None then sets rightExtend = right) |
 | *startGate | Shapely LineString object | Start line drawn from left to right (defaults to None - if None then sets using the first left/right track limits coordinates) |
 | *finishGate | Shapely LineString object | Finish line drawn from left to right (defaults to None - if None then sets using the first left/right track limits coordinates) |
 | *isClosed | Boolean | If the track is closed or not (defaults to None - if None then determines if the track is closed based on the closeness of the first/last left/right coordinates) |
