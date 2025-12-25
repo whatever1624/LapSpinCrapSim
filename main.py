@@ -1,10 +1,15 @@
 """
-Main place to configure and run the lap sim. However, currently just being used as a sandbox to test the lap sim modules.
+Main place to configure and run the lap sim.
+
+However, currently just being used as a sandbox to test the lap sim modules.
 """
 
 # Import packages
-import matplotlib.pyplot as plt
+import time
+import scipy
+import shapely
 import numpy as np
+import matplotlib.pyplot as plt
 
 # Import project python files
 from Utils.typeAliases import *

@@ -1,10 +1,17 @@
 """
-Trajectory class and its related functions. The Trajectory object defines the trajectory on which a lap sim can be run.
+Trajectory class and its related functions.
+
+The Trajectory object defines the trajectory on which a lap sim can be run.
+More documentation about the Trajectory object will come when I get around to
+making the Trajectory object.
 """
 
 # Import packages
-import numpy as np
+import time
 import scipy
+import shapely
+import numpy as np
+import matplotlib.pyplot as plt
 
 # Import project python files
 from Utils.typeAliases import *

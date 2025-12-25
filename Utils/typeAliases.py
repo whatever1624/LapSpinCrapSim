@@ -2,7 +2,10 @@
 Collection of aliases to simplify type hinting.
 """
 
+import typing
 import numpy as np
+
+Any = typing.Any
 
 ListFloat2D = list[list[float]]
 

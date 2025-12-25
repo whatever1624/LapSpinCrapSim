@@ -1,8 +1,9 @@
 """
 Helper script to format Notion documentation exports.
 
-Removes the Notion hash at the end of all files in the Documentation folder if they have the file extension(s) defined in script settings below.
-Moves the README file(s) to the main section of the project, overwriting if necessary.
+Removes the Notion hash at the end of all files in the Documentation folder if
+they have the file extension(s) defined in script settings below. Moves the
+README file(s) to the main section of the project, overwriting if necessary.
 """
 
 import os

@@ -4,10 +4,10 @@ Collection of helper functions commonly used by the other modules.
 
 # Import packages
 import time
-import matplotlib.pyplot as plt
-import numpy as np
 import scipy
 import shapely
+import numpy as np
+import matplotlib.pyplot as plt
 
 # Import project python files
 from typeAliases import *
@@ -19,7 +19,8 @@ def wrap(x: float | NDArrayFloat1D | NDArrayFloat2D,
          lowerBound: float,
          upperBound: float) -> float | NDArrayFloat1D:
     """
-    Wraps value(s) between the lower (inclusive) and upper (exclusive) bounds. Supports NumPy arrays as arguments.
+    Wraps value(s) between the lower (inclusive) and upper (exclusive) bounds.
+    Supports NumPy arrays as arguments.
 
     Args:
         x: Float or NumPy array of floats to wrap.
@@ -28,7 +29,9 @@ def wrap(x: float | NDArrayFloat1D | NDArrayFloat2D,
 
     Returns:
         If the argument x passed in was a float, returns the wrapped float of x.
-        If the argument x passed in was a NumPy array of floats, returns an array of floats in same shape where each element is wrapped.
+
+        If the argument x passed in was a NumPy array of floats, returns an
+        array of floats in same shape where each element is wrapped.
     """
     return lowerBound + ((x - lowerBound) % (upperBound - lowerBound))
 
@@ -40,7 +43,8 @@ def sideOfLine(xp: float,
                x2: float,
                y2: float) -> float:
     """
-    Finds which side of the line the point (xp, yp) is, where the line is from (x1, y1) to (x2, y2) in that direction.
+    Finds which side of the line the point (xp, yp) is, where the line is from
+    (x1, y1) to (x2, y2) in that direction.
 
     Args:
         xp: x coordinate of the point.
@@ -51,8 +55,10 @@ def sideOfLine(xp: float,
         y2: y coordinate of the end of the line.
 
     Returns:
-        0 if all points are collinear (i.e. all points are on the same straight line).
+        0 if all points are collinear (all points on the same straight line).
+
         >0 if the point (xp, yp) is on the right of the line.
+
         <0 if the point (xp, yp) is on the left of the line.
     """
     return ((xp - x1) * (y2 - y1)) - ((yp - y1) * (x2 - x1))
@@ -65,7 +71,7 @@ def rotateVector2D(xyVector: NDArrayFloat1D,
 
     Args:
         xyVector: NumPy array in the form [x, y] representing the 2D vector.
-        theta: Angle in radians to rotate the vector, in the anti-clockwise direction.
+        theta: Angle in radians to rotate the vector, anti-clockwise.
 
     Returns:
         NumPy array in the form [x*, y*] representing the rotated vector.

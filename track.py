@@ -1,11 +1,17 @@
 """
-Track Class and its related functions. The Track object defines the track on which a trajectory can be created/optimised.
+Track Class and its related functions.
+
+The Track object defines the track on which a trajectory can be created and
+optimised. More documentation about the Track object will come when I get around
+to making the Track object.
 """
 
 # Import packages
-import numpy as np
+import time
 import scipy
 import shapely
+import numpy as np
+import matplotlib.pyplot as plt
 
 # Import project python files
 from Utils import utils
@@ -14,13 +20,17 @@ from Utils.typeAliases import *
 
 def getLimitsDistances(limits: NDArrayFloat2D) -> NDArrayFloat1D:
     """
-    Returns an array of the cumulative distance along the limits coordinates, assuming straight lines between limits coordinates.
+    Calculates the array of the cumulative distance along the limits
+    coordinates, assuming straight lines between limits coordinates.
 
     Args:
-        limits: 2D array where each element is an [x, y, z] coordinate of the track limit, and each element increases the distance along the track.
+        limits: 2D array where each element is an [x, y, z] coordinate of the
+            track limit, and each element increases the distance along the
+            track.
 
     Returns:
-        1D array representing the cumulative distance along the limits coordinates, assuming straight lines between limits coordinates.
+        1D array representing the cumulative distance along the limits
+        coordinates, assuming straight lines between limits coordinates.
     """
     n = np.size(limits, 0)
     distances = np.empty(n)
@@ -35,18 +45,26 @@ def getGateFromCoords(leftCoord: NDArrayFloat1D,
                       rightCoord: NDArrayFloat1D,
                       gateHalfWidth: float) -> tuple[shapely.LineString, NDArrayFloat1D, NDArrayFloat1D]:
     """
-    Calculates the gate passing through the input coordinates. Only the x and y coordinates are used for the gate calculation.
+    Calculates the gate passing through the input coordinates. Only the x and y
+    coordinates are used for the gate calculation.
 
     Args:
-        leftCoord: 1D array of the left coordinate of the gate, in the form [x, y] or [x, y, z].
-        rightCoord: 1D array of the right coordinate of the gate, in the form [x, y] or [x, y, z].
-        gateHalfWidth: Half-width of the gate in metres.
+        leftCoord: 1D array of the left coordinate of the gate, in the form
+            [x, y] or [x, y, z].
+        rightCoord: 1D array of the right coordinate of the gate, in the form
+            [x, y] or [x, y, z].
+        gateHalfWidth: Half-width of the gate.
 
     Returns:
         Tuple of (gate, gateMidpoint, gateDirection).
+
         gate: Shapely LineString representing the gate.
-        gateMidpoint: Coordinates of the midpoint of the gate, in the form [x, y].
-        gateDirection: Direction vector of the gate in the direction of "forward travel", normalised to a magnitude of 1.
+
+        gateMidpoint: Coordinates of the midpoint of the gate, in the form
+        [x, y].
+
+        gateDirection: Direction vector of the gate in the direction of forward
+        travel, normalised to a magnitude of 1.
     """
     gateMidpoint = np.array([(leftCoord[0] + rightCoord[0]) / 2, (leftCoord[1] + rightCoord[1]) / 2])
     dx = rightCoord[0] - leftCoord[0]
@@ -65,19 +83,24 @@ def getGateExtendLine(gateMidpoint: NDArrayFloat1D,
                       leftExtendWidth: float,
                       rightExtendWidth: float) -> shapely.LineString:
     """
-    Returns the Shapely LineString of the gate defined by its midpoint, direction, width on the left, and width on the right.
-
-    Returns the Shapely LineString of the gate extended up to the extend limits.
+    Calculates the Shapely LineString of the gate defined by its midpoint,
+    direction, width on the left, and width on the right. The gate is extended
+    up to the extend limits.
 
     Args:
-        gateMidpoint: Coordinates of the midpoint of the gate, in the form [x, y].
-        gateDirection: Direction vector of the gate in the direction of "forward travel", normalised to a magnitude of 1.
-        leftExtendWidth: Distance from the gate midpoint to the left extend limits.
-        rightExtendWidth: Distance from the gate midpoint to the right extend limits.
+        gateMidpoint: Coordinates of the midpoint of the gate, in the form
+            [x, y].
+        gateDirection: Direction vector of the gate in the direction of forward
+            travel, normalised to a magnitude of 1.
+        leftExtendWidth: Distance from the gate midpoint to the left extend
+            limits.
+        rightExtendWidth: Distance from the gate midpoint to the right extend
+            limits.
 
     Returns:
-        Shapely LineString of the gate defined by gateMidpoint and gateDirection,
-        with width on the left of leftExtendWidth and width on the right of rightExtendWidth.
+        Shapely LineString of the gate defined by gateMidpoint and
+        gateDirection, with width on the left of leftExtendWidth and width on
+        the right of rightExtendWidth.
     """
     extendLineLeft = gateMidpoint + ([-gateDirection[1] * leftExtendWidth, gateDirection[0] * leftExtendWidth])
     extendLineRight = gateMidpoint + ([gateDirection[1] * rightExtendWidth, -gateDirection[0] * rightExtendWidth])
@@ -93,7 +116,41 @@ def getReducedLimitsClosed(limits: NDArrayFloat2D,
                            gateStep: float,
                            reducedWindow: float) -> tuple[NDArrayFloat2D, list[float]]:
     """
-    Returns the coordinate array and distance array of the reduced left/right limits (corresponding to the side passed through) for the window specified
+    Calculates the reduced limits and reduced cumulative distances, for the
+    window specified.
+
+    The reduced limits are the reduced set of limits coordinates local to the
+    point. These are used to reduce the search space when finding the gate
+    intersection with the track limits, and give robustness for handling complex
+    figure-8 tracks.
+
+    Args:
+        limits: 2D array where each element is an [x, y, z] coordinate of the
+            track limit, and each element increases the distance along the
+            track.
+        indexes: Array of the integer indexes corresponding to the limits array.
+        nLimits: Number of limits coordinates (i.e. size of the limits array in
+            axis 0).
+        distances: 1D array representing the cumulative distance along the
+            limits coordinates.
+        prevDist: Distance along the limits where the previous gate intersected
+            with the limits.
+        gateStep: Distance between consecutive gate midpoints.
+        reducedWindow: Distance ahead and behind the naive estimation of the
+            gate intersection to include for the reduced limits.
+
+    Returns:
+        Tuple of (reducedLimitsCoords, reducedDist).
+
+        reducedLimitsCoords: 2D array of [x, y, z] coordinates of the limits
+        which were within the reducedWindow of the naive estimation of the gate
+        intersection. This includes the coordinates on the boundary of the
+        reducedWindow, calculated from linear interpolation.
+
+        reducedDist: List representing the cumulative distance along the limits
+        coordinates which were within the reducedWindow of the naive estimation
+        of the gate intersection. This includes the cumulative distances on the
+        boundary of the reducedWindow, calculated from linear interpolation.
     """
     # Sets the window to be length (2 * reducedWindow), centred around the point of expected intersection of the gate and limits
     distStart = utils.wrap(prevDist + gateStep - reducedWindow, 0, distances[-1])
@@ -136,8 +193,30 @@ def getLimitsExtendWidthClosed(gate: shapely.LineString,
                                prevIndex: int,
                                gateHalfWidth: float) -> tuple[float, int]:
     """
-    Calculates the distance to the leftExtend/rightExtend coordinate array
-    Returns extendWidth, prevIndex
+    Calculates the distance to the extend limits from the gate midpoint, and the
+    index from which the intersecting segment of the extend limits started.
+
+    Args:
+        gate: Shapely LineString representing the gate.
+        gateMidpoint: Coordinates of the midpoint of the gate, in the form
+            [x, y].
+        limitsExtend: 2D array where each element is an [x, y, z] coordinate of
+            the extend limit, and each element increases the distance along the
+            track.
+        nLimitsExtend: Number of extend limits coordinates (i.e. size of the
+            limits array in axis 0).
+        prevIndex: Index from which the segment of the extend limit which
+            intersected with the previous gate started.
+        gateHalfWidth: Half-width of the gate.
+
+    Returns:
+        Tuple of (extendWidth, prevIndex)
+
+        extendWidth: Distance to the extend limits from the gate midpoint, along
+        the width of the gate.
+
+        prevIndex: Index of the coordinates from which the segment of the extend
+        limits which intersected with the gate started.
     """
     gateMidpointPoint = shapely.Point(gateMidpoint)
     gateCoords = gate.xy
@@ -181,7 +260,28 @@ def getLimitsWidths(gate: shapely.LineString,
                     reducedLeft: shapely.LineString,
                     reducedRight: shapely.LineString) -> tuple[float, float]:
     """
-    Calculates and returns leftWidth, rightWidth
+    Calculates the distance along the gate width to the left and right limits,
+    from the midpoint of the gate.
+
+    Args:
+        gate: Shapely LineString representing the gate.
+        gateMidpoint: Coordinates of the midpoint of the gate, in the form
+            [x, y].
+        reducedLeft: Shapely LineString connecting all the coordinates in the
+            reduced left limits coordinate array, which is the reduced set of
+            limits coordinates local to the point.
+        reducedRight: Shapely LineString connecting all the coordinates in the
+            reduced right limits coordinate array, which is the reduced set of
+            limits coordinates local to the point.
+
+    Returns:
+        Tuple of (leftWidth, rightWidth)
+
+        leftWidth: Distance to the left limits from the gate midpoint, along
+        the width of the gate.
+
+        rightWidth: Distance to the right limits from the gate midpoint, along
+        the width of the gate.
     """
     gateMidpointPoint = shapely.Point(gateMidpoint)
 
@@ -199,8 +299,45 @@ def calcGate(params: list[float],
              reducedLeft: shapely.LineString,
              reducedRight: shapely.LineString) -> tuple[shapely.LineString, NDArrayFloat1D, NDArrayFloat1D, float, float]:
     """
-    Calculates the gateMidpoint, gateDirection, gate LineString object, leftWidth and rightWidth
-    Returns gate, gateMidpoint, gateDirection, leftWidth, rightWidth
+    Calculates the gate from the parameters used in the gate finding function,
+    and information about the previous gate, then calculates the left and right
+    widths to the track limits.
+
+    Args:
+        params: List of [psi, theta], in this format for compatibility with the
+            SciPy optimisation used for gate finding.
+            psi is the anti-clockwise angle from the previous gate
+            direction, to place the midpoint of the new gate.
+            theta is the direction of the new gate, as an anti-clockwise angle
+            offset from psi.
+        prevGateMidpoint: Coordinates of the midpoint of the previous gate, in
+            the form [x, y].
+        prevGateDirection: Direction vector of the previous gate in the
+            direction of forward travel, normalised to a magnitude of 1.
+        gateHalfWidth: Half-width of the gate.
+        gateStep: Distance between consecutive gate midpoints.
+        reducedLeft: Shapely LineString connecting all the coordinates in the
+            reduced left limits coordinate array, which is the reduced set of
+            limits coordinates local to the point.
+        reducedRight: Shapely LineString connecting all the coordinates in the
+            reduced right limits coordinate array, which is the reduced set of
+            limits coordinates local to the point.
+
+    Returns:
+        Tuple of (gate, gateMidpoint, gateDirection, leftWidth, rightWidth).
+
+        gate: Shapely LineString representing the gate.
+
+        gateMidpoint: Coordinates of the midpoint of the gate, in the form
+            [x, y].
+        gateDirection: Direction vector of the gate in the direction of forward
+            travel, normalised to a magnitude of 1.
+
+        leftWidth: Distance to the left limits from the gate midpoint, along
+        the width of the gate.
+
+        rightWidth: Distance to the right limits from the gate midpoint, along
+        the width of the gate.
     """
     psi = params[0]  # gateHeading (angle from previous gate direction, positive anti-clockwise)
     theta = params[1]  # gateAngle (angle from psi/gateHeading, positive anti-clockwise)
@@ -234,8 +371,49 @@ def gateObjFunc(params: list[float],
                 reducedLeft: shapely.LineString,
                 reducedRight: shapely.LineString) -> float:
     """
-    Objective function for the gate placement optimisation to be in the middle of the track and with the smallest width
-    Returns leftWidth + rightWidth + abs(leftWidth - rightWidth)
+    Objective function for the gate finding optimisation.
+
+    This objective function aims to find the gate placement to be in the middle
+    of the track (i.e. equal distance to the left and right track limits), and
+    with the smallest width to the left and right track limits.
+
+    TODO: Explore using SciPy optimize root, with the objective function being
+        a vector of [leftWidth - rightWidth, leftAngle - rightAngle],
+        where leftAngle is the interior angle between the gate and the left
+        track limits, and similarly for rightAngle. The angles must be on the
+        same side of the gate.
+        Root finding approach should be faster than minimise, but if root
+        finding fails, fallback to SciPy minimise with this objective function.
+
+    Args:
+        params: List of [psi, theta], in this format for compatibility with the
+            SciPy optimisation used for gate finding.
+            psi is the anti-clockwise angle from the previous gate
+            direction, to place the midpoint of the new gate.
+            theta is the direction of the new gate, as an anti-clockwise angle
+            offset from psi.
+        prevGateMidpoint: Coordinates of the midpoint of the previous gate, in
+            the form [x, y].
+        prevGateDirection: Direction vector of the previous gate in the
+            direction of forward travel, normalised to a magnitude of 1.
+        gateHalfWidth: Half-width of the gate.
+        gateStep: Distance between consecutive gate midpoints.
+        reducedLeft: Shapely LineString connecting all the coordinates in the
+            reduced left limits coordinate array, which is the reduced set of
+            limits coordinates local to the point.
+        reducedRight: Shapely LineString connecting all the coordinates in the
+            reduced right limits coordinate array, which is the reduced set of
+            limits coordinates local to the point.
+
+    Returns:
+        leftWidth + rightWidth + abs(leftWidth - rightWidth), where these are
+        defined as below.
+
+        leftWidth: Distance to the left limits from the gate midpoint, along
+        the width of the gate.
+
+        rightWidth: Distance to the right limits from the gate midpoint, along
+        the width of the gate.
     """
     gate, gateMidpoint, gateDirection, leftWidth, rightWidth = calcGate(params, prevGateMidpoint, prevGateDirection, gateHalfWidth, gateStep, reducedLeft, reducedRight)
     if leftWidth == gateHalfWidth or rightWidth == gateHalfWidth:
@@ -250,7 +428,23 @@ def getGateLimitsIntersectionDistance(gate: shapely.LineString,
                                       distances: NDArrayFloat1D,
                                       isLeft: bool) -> float:
     """
-    Returns the distance along the coordinate array of the intersection with the gate
+    Calculates the distance along the track limits of the intersection with the
+    gate.
+
+    Args:
+        gate: Shapely LineString representing the gate.
+        reducedLimitsCoords: 2D array of [x, y, z] coordinates of the limits
+            which were within the reducedWindow of the naive estimation of the
+            gate intersection. This includes the coordinates on the boundary of
+            the reducedWindow, calculated from linear interpolation.
+        reducedDist: List representing the cumulative distance along the limits
+            coordinates which were within the reducedWindow of the naive
+            estimation of the gate intersection. This includes the cumulative
+            distances on the boundary of the reducedWindow, calculated from
+            linear interpolation.
+
+    Returns:
+        Distance along the coordinate array of the intersection with the gate.
     """
     # Iterates through each segment in the reduced limits coordinate array
     for i in range(len(reducedDist) - 1):
