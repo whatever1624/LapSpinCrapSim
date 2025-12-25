@@ -14,7 +14,13 @@ from Utils.typeAliases import *
 
 def getLimitsDistances(limits: NDArrayFloat2D) -> NDArrayFloat1D:
     """
-    Returns the number of coordinates in the limits coordinate array and an array of the cumulative distances along the limits coordinates
+    Returns an array of the cumulative distance along the limits coordinates, assuming straight lines between limits coordinates.
+
+    Args:
+        limits: 2D array where each element is an [x, y, z] coordinate of the track limit, and each element increases the distance along the track.
+
+    Returns:
+        1D array representing the cumulative distance along the limits coordinates, assuming straight lines between limits coordinates.
     """
     n = np.size(limits, 0)
     distances = np.empty(n)
@@ -29,9 +35,18 @@ def getGateFromCoords(leftCoord: NDArrayFloat1D,
                       rightCoord: NDArrayFloat1D,
                       gateHalfWidth: float) -> tuple[shapely.LineString, NDArrayFloat1D, NDArrayFloat1D]:
     """
-    Calculates the gate passing through the input coordinates with its midpoint at the midpoint of the input coordinates
-    Returns gate, gateMidpoint, gateDirection
-    leftCoord and rightCoord can be in the form [x, y] or [x, y, z]
+    Calculates the gate passing through the input coordinates. Only the x and y coordinates are used for the gate calculation.
+
+    Args:
+        leftCoord: 1D array of the left coordinate of the gate, in the form [x, y] or [x, y, z].
+        rightCoord: 1D array of the right coordinate of the gate, in the form [x, y] or [x, y, z].
+        gateHalfWidth: Half-width of the gate in metres.
+
+    Returns:
+        Tuple of (gate, gateMidpoint, gateDirection).
+        gate: Shapely LineString representing the gate.
+        gateMidpoint: Coordinates of the midpoint of the gate, in the form [x, y].
+        gateDirection: Direction vector of the gate in the direction of "forward travel", normalised to a magnitude of 1.
     """
     gateMidpoint = np.array([(leftCoord[0] + rightCoord[0]) / 2, (leftCoord[1] + rightCoord[1]) / 2])
     dx = rightCoord[0] - leftCoord[0]
@@ -50,7 +65,19 @@ def getGateExtendLine(gateMidpoint: NDArrayFloat1D,
                       leftExtendWidth: float,
                       rightExtendWidth: float) -> shapely.LineString:
     """
-    Returns a Shapely LineString from the gate's intersection with leftExtend to the gate's intersection with rightExtend
+    Returns the Shapely LineString of the gate defined by its midpoint, direction, width on the left, and width on the right.
+
+    Returns the Shapely LineString of the gate extended up to the extend limits.
+
+    Args:
+        gateMidpoint: Coordinates of the midpoint of the gate, in the form [x, y].
+        gateDirection: Direction vector of the gate in the direction of "forward travel", normalised to a magnitude of 1.
+        leftExtendWidth: Distance from the gate midpoint to the left extend limits.
+        rightExtendWidth: Distance from the gate midpoint to the right extend limits.
+
+    Returns:
+        Shapely LineString of the gate defined by gateMidpoint and gateDirection,
+        with width on the left of leftExtendWidth and width on the right of rightExtendWidth.
     """
     extendLineLeft = gateMidpoint + ([-gateDirection[1] * leftExtendWidth, gateDirection[0] * leftExtendWidth])
     extendLineRight = gateMidpoint + ([gateDirection[1] * rightExtendWidth, -gateDirection[0] * rightExtendWidth])
