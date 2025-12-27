@@ -1,6 +1,10 @@
-# README
+# Documentation Homepage
+
+**GitHub Repo:**
 
 [https://github.com/whatever1624/LapSpinCrapSim](https://github.com/whatever1624/LapSpinCrapSim)
+
+**Read the Full Documentation:** [Documentation Homepage](Documentation%20Homepage%20249e66e2bd3a802daf85e94596e4872e.md) 
 
 First GitHub repo yippee!!!
 
@@ -12,11 +16,13 @@ Once I have a working proof-of-concept for all/most of the modules then I will s
 
 Expect a lot of refactoring because I have no clue what I’m doing :D
 
+# Overview
+
+…this will get filled eventually (i hope)
+
 # Modules
 
-*See the Documentation folder of this repo for more information - the module links don’t work*
-
-*Also Markdown doesn’t work with newlines in tables so that breaks the rendering unfortunately*
+*Note: The links below don’t work (Notion Markdown export), but these are exported to the Documentation folder as Markdown files - though primarily for backup due to bad Markdown formatting of newlines in tables*
 
 [1 Utils](1%20Utils%20252e66e2bd3a80fb9319d451e51e4b1c.md)
 
@@ -38,30 +44,27 @@ Expect a lot of refactoring because I have no clue what I’m doing :D
 
 - Clean up everything
     - Also try and use NumPy as much as possible
-- Rework the track and trajectory
-    - Calculate track limit violations in terms of area violated (i.e. area of the polygon enclosed by the violating part of the trajectory and the track limits
 - Implement the new approach for the track module
+- Rework the trajectory module
+    - Calculate track limit violations in terms of area violated (i.e. area of the polygon enclosed by the violating part of the trajectory and the track limits
 
-## **Docs for Packages**
+## Required Packages
 
+- https://docs.scipy.org/doc/scipy/
+- https://shapely.readthedocs.io/en/stable/
+- https://numpy.org/doc/stable/index.html
 - https://matplotlib.org/stable/api/pyplot_summary.html
-*https://matplotlib.org/stable/api/pyplot_summary.html*
-- https://numpy.org/doc/stable/reference/index.html
-*https://numpy.org/doc/stable/reference/index.html*
-- https://shapely.readthedocs.io/en/stable/geometry.html
-*https://shapely.readthedocs.io/en/stable/geometry.html*
-- https://docs.python.org/3/library/multiprocessing.html#
-*https://docs.python.org/3/library/multiprocessing.html#*
 
 ## **Useful Links**
 
+- **Spline-based trajectory optimisation research paper -** https://arxiv.org/abs/2309.09186
 - **Python modules for various file formats** - https://opendata.stackexchange.com/questions/1208/a-python-guide-for-open-data-file-formats
 - **Matplotlib live plotting** - Use interactive mode, probably store all plot information in a global dictionary (take elements from the interactive mode and scatter plot examples here https://www.geeksforgeeks.org/python/dynamically-updating-plot-in-matplotlib/)
-- **If I try using SciPy optimize again -** https://stackoverflow.com/questions/19843752/structure-of-inputs-to-scipy-minimize-function
-- **If I wanna optimise using genetic algorithm/particle swarm/etc. (trajectory and/or setup) -** https://pymoo.org/index.html
+- **SciPy optimize input structure -** https://stackoverflow.com/questions/19843752/structure-of-inputs-to-scipy-minimize-function
+- **Optimisation using genetic algorithm, particle swarm etc. -** https://pymoo.org/index.html
 - **Parallelised SciPy optimise minimise with method L-BFGS-B, may be suited for trajectory or energy management optimisation** - https://pypi.org/project/optimparallel/
 - **Parallelised SciPy global optimisation with differential_evolution, may be suited for setup optimisation** - https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html#scipy.optimize.differential_evolution
-- **Spline-based trajectory optimisation research paper -** https://arxiv.org/pdf/2309.09186
+- **Python multiprocessing** - https://docs.python.org/3/library/multiprocessing.html
 
 ## Conventions
 
