@@ -6,7 +6,7 @@
 
 **Read the Full Documentation:**
 
-[The AI workspace that works for you. | Notion](https://www.notion.so/lapspincrapsim/Documentation-Homepage-249e66e2bd3a802daf85e94596e4872e)
+[Documentation Homepage | Notion](https://lapspincrapsim.notion.site/Documentation-Homepage-249e66e2bd3a802daf85e94596e4872e)
 
 First GitHub repo yippee!!!
 
