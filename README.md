@@ -4,7 +4,9 @@
 
 [https://github.com/whatever1624/LapSpinCrapSim](https://github.com/whatever1624/LapSpinCrapSim)
 
-**Read the Full Documentation:** [Documentation Homepage](Documentation%20Homepage%20249e66e2bd3a802daf85e94596e4872e.md) 
+**Read the Full Documentation:**
+
+[The AI workspace that works for you. | Notion](https://www.notion.so/lapspincrapsim/Documentation-Homepage-249e66e2bd3a802daf85e94596e4872e)
 
 First GitHub repo yippee!!!
 
