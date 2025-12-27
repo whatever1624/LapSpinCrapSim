@@ -18,9 +18,10 @@ for entry in os.scandir(docsDir):
             # Remove the Notion hash
             newName = entry.name[:entry.name.rfind(' ')] + fileEx
             if 'README' in entry.name.upper():
-                # File is a README, move it to the main repo (and overwrite if necessary)
+                # File is a README, move it to the main repo
                 newPath = os.path.join(os.path.dirname(docsDir), newName)
             else:
-                # File is not a README, just rename it in its location (and overwrite if necessary)
+                # File is not a README, just rename it in its location
                 newPath = os.path.join(docsDir, newName)
+            # Move/rename the file (overwrites if necessary)
             os.replace(entry.path, newPath)

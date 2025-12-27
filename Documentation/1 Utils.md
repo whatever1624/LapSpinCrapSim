@@ -1,38 +1,45 @@
 # 1 Utils
 
----
+# Type Aliases
+
+A collection of aliases to make type hinting easier and more readable, particularly for type hinting numpy arrays
 
 # Miscellaneous Functions
 
-### Wrap()
+### wrap()
 
-Wraps an input *x* around the lower (inclusive) and upper (exclusive) bounds
+Wraps value(s) between the lower (inclusive) and upper (exclusive) bounds
 
-Supports NumPy array as input *x* - not sure if it supports that for the bounds but not important
+Supports NumPy arrays as arguments
 
----
+## sideOfLine()
 
-# Optimisation Progress
+Finds which side of the line the point (xp, yp) is, where the line is from (x1, y1) to (x2, y2) in that direction
+
+## rotateVector2D()
+
+Rotates the 2D vector anti-clockwise by theta radians
+
+# Optimisation Progress Tracking
 
 ## Storing Optimisation Progress Data
 
-### globalOptProgressDict
+### OPT_PROGRESS_DICT
 
 A global dictionary storing the optimisation progress data
 
 | *Key* | *Type* | *Description* |
 | --- | --- | --- |
-| NumEvals | Int | Number of times the evaluation function has been run |
+| nEvals | Int | Number of times the evaluation function has been run |
 | EvalResults | List of floats | Values of the evaluation function corresponding to each time the evaluation function was run |
 | BestResults | List of floats | Values of the best result so far up to that point corresponding to each time the evaluation function was run |
-
----
+| BestInputs | Array of floats | Input vector to the objective function that gave the best result up to that point |
 
 # Live Plotting
 
 ## Storing Plot Data
 
-### globalPlotsDict
+### PLOTS_DICT
 
 A global dictionary storing the live plot, its axes, and the dictionaries associated with the active axes
 

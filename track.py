@@ -1,9 +1,7 @@
 """
-Track Class and its related functions.
-
-The Track object defines the track on which a trajectory can be created and
-optimised. More documentation about the Track object will come when I get around
-to making the Track object.
+The track module is responsible for defining the track on which a trajectory
+can be created and optimised. This includes the Track class, as well as the
+CoordinateArray, Event and Gate classes used to generate and define the track.
 """
 
 # Import packages
@@ -17,6 +15,43 @@ import matplotlib.pyplot as plt
 from Utils import utils
 from Utils.typeAliases import *
 
+# Filename constants
+TRACK_PKL_FILENAME = "Track.pkl"
+LIMIT_LEFT_SOFT_FILENAME = "xyzLimitLeftSoft.csv"
+LIMIT_RIGHT_SOFT_FILENAME = "xyzLimitRightSoft.csv"
+LIMIT_LEFT_HARD_FILENAME = "xyzLimitLeftHard.csv"
+LIMIT_RIGHT_HARD_FILENAME = "xyzLimitRightHard.csv"
+
+# CoordinateArray constants
+LP_FILT_SPATIAL_FREQ = 0.1              # Low-pass cutoff spatial frequency (cycles per metre)
+LP_FILT_ORDER = 1                       # Order of the low-pass filter
+
+# Event constants
+CUSTOM_EVENT_TYPES = []                 # List of valid event types for custom events
+INTERNAL_EVENT_TYPES = []               # List of event types for internal events
+
+# Gate constants
+GATE_STEP_DISTANCE = 5                  # Distance between each consecutive gate for gate creation
+                                        # (unless overridden by an event gate or the gate is skipped as it overlaps with neighbouring gates)
+                                        #   Higher gives more resolution for determining track limits
+                                        #   Too high may excessively slow track and trajectory generation
+
+GATE_MAX_WIDTH = 1000                   # Maximum width of the gate, used as the initial gate width during gate creation
+
+GATE_EXTEND_WIDTH = 10                  # Additional width beyond the respective hard track limits to extend the gate width on each side,
+                                        # to allow suitable penalties to be calculated if track limits are violated
+                                        #   Higher gives more robustness by allowing the trajectory that exceeds track limits to still be solved
+                                        #   Too high can cause gates to be skipped in tight corners due to overlapping
+
+# Track generation constants
+CLOSED_TRACK_THRESHOLD_DISTANCE = 10    # Maximum (direct) distance from the start to finish coordinates of the provided soft track limits
+                                        # to consider the track closed, when using the automatic logic
+
+DIRECTION_SIMILARITY_THRESHOLD = 0      # Threshold for the dot product of 2 vectors (each with magnitude of 1)
+                                        # above which to consider the directions of the vectors as "similar"
+
+TRACK_PLOT_AREA = 100                   # Area of the track plot saved after track generation (or if track generation raised an exception manually)
+
 
 def getLimitsDistances(limits: NDArrayFloat2D) -> NDArrayFloat1D:
     """
@@ -24,8 +59,8 @@ def getLimitsDistances(limits: NDArrayFloat2D) -> NDArrayFloat1D:
     coordinates, assuming straight lines between limits coordinates.
 
     Args:
-        limits: 2D array where each element is an [x, y, z] coordinate of the
-            track limit, and each element increases the distance along the
+        limits: 2D array where each index is an [x, y, z] coordinate of the
+            track limit, and each index increases the distance along the
             track.
 
     Returns:
@@ -125,8 +160,8 @@ def getReducedLimitsClosed(limits: NDArrayFloat2D,
     figure-8 tracks.
 
     Args:
-        limits: 2D array where each element is an [x, y, z] coordinate of the
-            track limit, and each element increases the distance along the
+        limits: 2D array where each index is an [x, y, z] coordinate of the
+            track limit, and each index increases the distance along the
             track.
         indexes: Array of the integer indexes corresponding to the limits array.
         nLimits: Number of limits coordinates (i.e. size of the limits array in
@@ -200,8 +235,8 @@ def getLimitsExtendWidthClosed(gate: shapely.LineString,
         gate: Shapely LineString representing the gate.
         gateMidpoint: Coordinates of the midpoint of the gate, in the form
             [x, y].
-        limitsExtend: 2D array where each element is an [x, y, z] coordinate of
-            the extend limit, and each element increases the distance along the
+        limitsExtend: 2D array where each index is an [x, y, z] coordinate of
+            the extend limit, and each index increases the distance along the
             track.
         nLimitsExtend: Number of extend limits coordinates (i.e. size of the
             limits array in axis 0).
@@ -442,6 +477,10 @@ def getGateLimitsIntersectionDistance(gate: shapely.LineString,
             estimation of the gate intersection. This includes the cumulative
             distances on the boundary of the reducedWindow, calculated from
             linear interpolation.
+        distances: 1D array representing the cumulative distance along the
+            limits coordinates.
+        isLeft: Boolean specifying whether the limits passed in is on the left
+            or right.
 
     Returns:
         Distance along the coordinate array of the intersection with the gate.
@@ -581,7 +620,7 @@ class Track:
         nLeft, leftDistances = getLimitsDistances(left)
         nRight, rightDistances = getLimitsDistances(right)
         nLeft = np.size(leftDistances)
-        nLeft = np.size(leftDistances)
+        nRight = np.size(leftDistances)
 
         # For the extendWidth calculations
         nLeftExtend = np.size(leftExtend, 0)
