@@ -351,14 +351,12 @@ Defaults to None, in which case whether the track is closed or not is determined
 | *Filename* | *Contents* |
 | --- | --- |
 | xyzLimitLeftSoft.csv | Coordinates forming the left soft track limit, with each row representing a coordinate in the form:
-
 x,y,z
 
 Going down the rows of coordinates means travelling forward along the track limit
 
 The soft track limit means that the lap is valid as long as 1 tyre is within this limit - think: painted white lines |
 | xyzLimitRightSoft.csv | Coordinates forming the right soft track limit, with each row representing a coordinate in the form:
-
 x,y,z
 
 Going down the rows of coordinates means travelling forward along the track limit
@@ -366,82 +364,65 @@ Going down the rows of coordinates means travelling forward along the track limi
 The soft track limit means that the lap is valid as long as 1 tyre is within this limit - think: painted white lines |
 | xyzLimitLeftHard.csv
 
-*Optional | Coordinates forming the left hard track limit, with each row representing a coordinate in the form:
-
+*Optional, will automatically use the xyzLimitLeftSoft.csv file for the left hard track limit if not provided | Coordinates forming the left hard track limit, with each row representing a coordinate in the form:
 x,y,z
 
 Going down the rows of coordinates means travelling forward along the track limit
 
-The hard track limit means that the whole car must be within this limit for the lap to be valid - think: wall, grass, aggressive sausage kerb etc.
-
-If not provided, will automatically use the xyzLimitLeftSoft.csv file for the left hard track limit |
+The hard track limit means that the whole car must be within this limit for the lap to be valid - think: wall, grass, aggressive sausage kerb etc. |
 | xyzLimitRightHard.csv
 
-*Optional | Coordinates forming the right hard track limit, with each row representing a coordinate in the form:
-
+*Optional, will automatically use the xyzLimitRightSoft.csv file for the right hard track limit if not provided | Coordinates forming the right hard track limit, with each row representing a coordinate in the form:
 x,y,z
 
 Going down the rows of coordinates means travelling forward along the track limit
 
-The hard track limit means that the whole car must be within this limit for the lap to be valid - think: wall, grass, aggressive sausage kerb etc.
-
-If not provided, will automatically use the xyzLimitRightSoft.csv file for the right hard track limit |
+The hard track limit means that the whole car must be within this limit for the lap to be valid - think: wall, grass, aggressive sausage kerb etc. |
 | xyStartGateOverride.csv
 
-*Optional | Coordinates to override the location and orientation of the track’s start gate, in the form:
-
+*Optional, will automatically use the first coordinate pair from xyzLimitLeftSoft.csv and xyzLimitRightSoft.csv to create the start gate if not provided | Coordinates to override the location and orientation of the track’s start gate, in the form:
 xLeft,yLeft
 xRight,yRight
-
-If not provided, will automatically use the first coordinate pair from xyzLimitLeftSoft.csv and xyzLimitRightSoft.csv to create the start gate
 
 Note that the actual start gate after track generation may not have the same left and right coordinates as defined here, though it will still lie on the same line as defined, with the same direction |
 | xyFinishGateOverride.csv
 
-*Optional | Coordinates to override the location and orientation of the track’s finish gate, in the form:
-
+*Optional, will automatically use the first (if the track is closed) or last (if the track is not closed) coordinate pair from xyzLimitLeftSoft.csv and xyzLimitRightSoft.csv to create the finish gate if not provided | Coordinates to override the location and orientation of the track’s finish gate, in the form:
 xLeft,yLeft
 xRight,yRight
-
-If not provided, will automatically use the first (if the track is closed) or last (if the track is not closed) coordinate pair from xyzLimitLeftSoft.csv and xyzLimitRightSoft.csv to create the finish gate
 
 Note that the actual finish gate after track generation may not have the same left and right coordinates as defined here, though it will still lie on the same line as defined, with the same direction |
 | eventData_____.json
 
-*Optional
+*Optional, does not create (custom) event gates for the track if not provided
 
-*Can have multiple files beginning with ‘eventData’ and ending with ‘.json’ to allow multiple events | Contains the keys below used to specify an event:
+*Can have multiple files beginning with ‘eventData’ and ending with ‘.json’ to allow multiple events | Contains the keys ‘type’, ‘xyStartLeft’, ‘xyStartRight’, ‘xyFinishLeft’, ‘xyFinishRight’ and optionally ‘properties’ which are used to specify and event
 
-type: String identifying the type of event (not including ‘StartFinish’ as that is covered by the override files above or automatically determined)
+‘type’ is a string identifying the type of event (not including ‘StartFinish’ as that is covered by the override files above or automatically determined)
 
-xyStartLeft: Left coordinates of the event start gate, as a list of floats in the form [xStartLeft, yStartLeft]
+‘xyStartLeft’ is the left coordinate of the event start gate, as a list of floats in the form [xStartLeft, yStartLeft]
 
-xyStartRight: Right coordinates of the event start gate, as a list of floats in the form [xStartRight, yStartRight]
+’xyStartRight’ is the right coordinate of the event start gate, as a list of floats in the form [xStartRight, yStartRight]
 
-xyFinishLeft: Left coordinates of the event finish gate, as a list of floats in the form [xFinishLeft, yFinishLeft]
+‘xyFinishLeft’ is the left coordinate of the event finish gate, as a list of floats in the form [xFinishLeft, yFinishLeft]
 
-xyFinishRight: Right coordinates of the event finish gate, as a list of floats in the form [xFinishLeft, yFinishLeft]
+‘xyFinishRight’ is the right coordinate of the event finish gate, as a list of floats in the form [xFinishLeft, yFinishLeft]
 
-properties (*Optional): Dictionary of properties for the event
-
-If not provided, does not create event gates for the track
+‘properties’ is the dictionary of properties for the event and is only needed if the event requires properties to define it
 
 The name used for the event is parsed from the filename (i.e. the unique filename substring represented by ‘_____’)
 
 Note that the actual gates after track generation may not have the same left and right coordinates as defined here, though they will still lie on the same lines as defined, with the same directions |
 | xyzExtraCoordsArray_____.csv
 
-*Optional
+*Optional, will only use the coordinates from the available track limits files to create the track mesh if not provided
 
 *Can have multiple files beginning with ‘xyzExtraCoordsArray’ and ending with ‘.csv’ to allow multiple extra coordinate arrays to create a higher resolution track mesh | Coordinates in the same form as the track limits, with each row representing a coordinate in the form:
-
 x,y,z
 
 Going down the rows of coordinates means travelling forward along the track
 
-These are expected to be within the hard track limits (i.e. enclosed by xyzLimitLeftHard and xyzLimitRightHard), though some tolerance is permitted by the gate extending some distance beyond the hard track limits
-
-If not provided, will only use the coordinates from the available track limits files to create the track mesh |
+These are expected to be within the hard track limits (i.e. enclosed by xyzLimitLeftHard and xyzLimitRightHard), though some tolerance is permitted by the gate extending some distance beyond the hard track limits |
 
 ### __initGateFromCoords()
 
@@ -669,7 +650,6 @@ Calculates the z coordinate of the track at the specified [x, y] coordinate, usi
 | xy | List or NumPy array of floats | Coordinate to calculate the z coordinate of the track at, in the form [x, y] |
 | gateIndex | Integer | Index of the gate, which determines which local track mesh interpolator to use to calculate the z coordinate |
 | BReturnNaN
-
 *Optional, defaults to false | Boolean | Flag for whether to sanitise the calculated z coordinate
 
 If true, returns 0 instead of NaN if the xy coordinate was outside the interpolation region
