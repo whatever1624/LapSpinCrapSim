@@ -197,13 +197,34 @@ def resample(signal: list[float] | NDArrayFloat1D,
     return signalResampled, tsResampled
 
 
+def getIndsWithoutConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, ...], np.dtype[Any]],
+                                        axis: int = -1) -> np.ndarray[tuple[Any, ...], np.dtype[np.integer]]:
+    """
+    Returns the indexes of the array that omitting elements that would cause
+    consecutive duplicates.
+
+    Based on https://stackoverflow.com/a/37840467.
+
+    Args:
+        arr: List or array. Data type must be compatible with np.diff().
+        axis: Axis along which to check for consecutive duplicates, defaults to
+            the last axis.
+
+    Returns:
+        Array with the indexes that omit elements causing consecutive duplicates
+        along the axis specified.
+    """
+    return np.append(True, np.diff(arr, axis=axis).astype(np.bool))
+
+
 def removeConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, ...], np.dtype[Any]],
                                 axis: int = -1) -> np.ndarray[tuple[Any, ...], np.dtype[Any]]:
     """
     Returns the array with consecutive duplicates removed along the axis
     specified.
 
-    Based on https://stackoverflow.com/a/37840467.
+    Uses getIndsWithoutConsecutiveDuplicates() which is based on
+    https://stackoverflow.com/a/37840467.
 
     Args:
         arr: List or array to remove the consecutive duplicates from. Data type
@@ -214,7 +235,27 @@ def removeConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, ...], np.
     Returns:
         Array with the consecutive duplicates removed along the axis specified.
     """
-    return arr[np.append(True, np.diff(arr, axis=axis).astype(np.bool))]
+    return arr[getIndsWithoutConsecutiveDuplicates(arr, axis)]
+
+
+def rotateVectorHeading(xyVector: NDArrayFloat1D,
+                        theta: float) -> NDArrayFloat1D:
+    """
+    Rotates the vector anti-clockwise in the 2D plane [x, y] by theta radians.
+
+    Args:
+        xyVector: NumPy array in the form [x, y] representing the 2D vector.
+        theta: Angle in radians to rotate the vector, anti-clockwise.
+
+    Returns:
+        NumPy array in the form [x*, y*] representing the rotated vector.
+    """
+    c = np.cos(theta)
+    s = np.sin(theta)
+    xyVectorRotated = np.empty(2)
+    xyVectorRotated[0] = (c * xyVector[0]) - (s * xyVector[1])
+    xyVectorRotated[1] = (s * xyVector[0]) + (c * xyVector[1])
+    return xyVectorRotated
 
 
 # -------------------------------------------------- NOT USED YET -------------------------------------------------- #
@@ -245,23 +286,3 @@ def sideOfLine(xyPoint: NDArrayFloat2D,
         < 0 if the point is on the left of the line.
     """
     return ((xyPoint[0] - xyLineStart[0]) * (xyLineEnd[1] - xyLineStart[1])) - ((xyPoint[1] - xyLineStart[1]) * (xyLineEnd[0] - xyLineStart[0]))
-
-
-def rotateVectorHeading(xyVector: NDArrayFloat1D,
-                        theta: float) -> NDArrayFloat1D:
-    """
-    Rotates the vector anti-clockwise in the 2D plane [x, y] by theta radians.
-
-    Args:
-        xyVector: NumPy array in the form [x, y] representing the 2D vector.
-        theta: Angle in radians to rotate the vector, anti-clockwise.
-
-    Returns:
-        NumPy array in the form [x*, y*] representing the rotated vector.
-    """
-    c = np.cos(theta)
-    s = np.sin(theta)
-    xyVectorRotated = np.empty(2)
-    xyVectorRotated[0] = (c * xyVector[0]) - (s * xyVector[1])
-    xyVectorRotated[1] = (s * xyVector[0]) + (c * xyVector[1])
-    return xyVectorRotated

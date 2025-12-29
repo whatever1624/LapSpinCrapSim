@@ -28,7 +28,7 @@ Expect a lot of refactoring because I have no clue what I’m doing :D
 
 [1 Utils](1%20Utils%20252e66e2bd3a80fb9319d451e51e4b1c.md)
 
-[2 Track](2%20Track%202d4e66e2bd3a8026ae52c079d9cee20a.md)
+[`2 Track`](2%20Track%202d4e66e2bd3a8026ae52c079d9cee20a.md)
 
 [3 Trajectory OLD](3%20Trajectory%20OLD%20254e66e2bd3a8036a34cf73c2b42096f.md)
 
@@ -75,7 +75,7 @@ Expect a lot of refactoring because I have no clue what I’m doing :D
 **Line Length**
 
 - For docstrings, 80 characters or less
-- For code and comments, free to use as much as necessary - though recommended limit of 160 so that 1 line fits on my 14-inch laptop
+- For code and comments, free to use as much as necessary - though recommended limit of 150 so that 1 line fits on my 14-inch laptop
 
 **Global Variables and Constants**
 

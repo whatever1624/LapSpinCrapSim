@@ -109,17 +109,21 @@ class CoordinateArray:
                 AHeadingsFilt.
         """
         # Set xyzCoords, making sure this is a closed coordinate array if the track is closed (last coordinate equal to the first coordinate)
-        # and that consecutive duplicate coordinates are removed.
         if BClosedTrack and xyzCoords[-1] != xyzCoords[0]:
-            self.xyzCoords = utils.removeConsecutiveDuplicates(np.vstack((xyzCoords, xyzCoords[0])), axis=0)
+            self.xyzCoords = np.vstack((xyzCoords, xyzCoords[0]))
         else:
             self.xyzCoords = utils.removeConsecutiveDuplicates(xyzCoords, axis=0)
 
-        # Set attributes if all are provided (without validation), or calculate attributes if not provided
+        # Get the indexes that omit consecutive duplicates from the coordinate array, and remove the consecutive duplicates from the coordinate array
+        inds = utils.getIndsWithoutConsecutiveDuplicates(xyzCoords, axis=0)
+        self.xyzCoords = self.xyzCoords[inds]
+
+        # Set attributes if all are provided (without validation, but omitting the consecutive duplicates in line with the coordinate array), or
+        # calculate attributes if any are not provided
         if not any(a is None for a in [sCoords, AHeadings, AHeadingsFilt]):
-            self.sCoords = sCoords
-            self.AHeadings = AHeadings
-            self.AHeadingsFilt = AHeadingsFilt
+            self.sCoords = sCoords[inds]
+            self.AHeadings = AHeadings[inds]
+            self.AHeadingsFilt = AHeadingsFilt[inds]
         else:
             # Calculate sCoords - cumulative distance along the coordinates
             dxyzCoords = np.diff(xyzCoords, axis=0)
@@ -337,9 +341,10 @@ class CoordinateArray:
         AHeadings = np.vstack((AStart, self.AHeadings[indsValid], AFinish))
         AFiltHeadings = np.vstack((AFiltStart, self.AHeadingsFilt[indsValid], AFiltFinish))
 
-        # Return a new CoordinateArray instance initialised with its attributes provided (note that the BAllowNegativeInitAHeading flag has no effect
-        # when initialised with attributes provided, as is the case here)
-        return CoordinateArray(xyzCoords, BClosedTrack, False, sCoords, AHeadings, AFiltHeadings)
+        # Return a new CoordinateArray instance initialised with its attributes provided
+        # Note that the BAllowNegativeInitAHeading flag has no effect when initialised with attributes provided as is the case here
+        # Also note that any consecutive duplicates will be removed during the initialisation of the new CoordinateArray instance
+        return CoordinateArray(xyzCoords, False, False, sCoords, AHeadings, AFiltHeadings)
 
 
 @dataclass
