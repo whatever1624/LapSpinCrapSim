@@ -56,7 +56,8 @@ def getHeading(xy_xyz: NDArrayFloat1D | NDArrayFloat2D,
         angle are determined by the flag BZeroCentred.
 
     Raises:
-        ValueError: Argument xy_xyz must be 1D or 2D, not {ndim}
+        ValueError: Invalid argument xy_xyz of dimension {ndim}: must be 1D or
+            2D
     """
 
     # Get x and y coordinates
@@ -68,7 +69,7 @@ def getHeading(xy_xyz: NDArrayFloat1D | NDArrayFloat2D,
         x = xy_xyz[:, 0]
         y = xy_xyz[:, 1]
     else:
-        raise ValueError(f"Argument xy_xyz must be 1D or 2D, not {ndim}")
+        raise ValueError(f"Invalid argument xy_xyz of dimension {ndim}: must be 1D or 2D")
 
     # Calculate heading angle(s)
     AHeading = np.arctan2(y, x)

@@ -6,6 +6,7 @@ Module for live plotting of the lap sim progress and optimisation progress.
 from typing import Literal
 
 # External libraries
+import numpy as np
 import matplotlib.pyplot as plt
 
 # Project python modules
@@ -41,7 +42,7 @@ def getAxsIndex(axsName: Literal['TrackTraj', 'OptProgress', 'LapSimProgress']) 
         Index for the axs corresponding to the axes name.
 
     Raises:
-        ValueError: 'axsName' is not a valid axes name. Valid axes names are
+        ValueError: Invalid axes name '{axsName}': must be one of
             ['TrackTraj', 'OptProgress', 'LapSimProgress'].
     """
     if axsName in VALID_AXS_NAMES:
@@ -52,7 +53,7 @@ def getAxsIndex(axsName: Literal['TrackTraj', 'OptProgress', 'LapSimProgress']) 
         else:
             return 0
     else:
-        raise ValueError(f"'{axsName}' is not a valid axes name. Valid axes names are {VALID_AXS_NAMES}.")
+        raise ValueError(f"Invalid axes name '{axsName}': must be one of {VALID_AXS_NAMES}")
 
 
 def updateTrack(track: Track) -> None:
