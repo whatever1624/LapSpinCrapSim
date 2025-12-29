@@ -2,16 +2,15 @@
 Collection of helper functions commonly used by the other modules.
 """
 
-# Import packages
-import time
-import scipy
-import shapely
-import numpy as np
-import matplotlib.pyplot as plt
+# Python standard libraries
 from typing import Literal
 
-# Import project python files
-from Utils.typeAliases import *
+# External libraries
+import scipy
+import numpy as np
+
+# Project python modules
+from Utils.typeAliases import Any, ListFloat2D, NDArrayFloat1D, NDArrayFloat2D, NDArrayInt1D, NDArrayNumber1D
 
 
 def wrap(x: float | NDArrayFloat1D | NDArrayFloat2D,
@@ -118,15 +117,16 @@ def filt(signal: list[float] | NDArrayFloat1D,
 
 
 def linearInterpExtrap(x: float,
-                       xp: NDArrayFloat1D,
-                       fp: NDArrayFloat1D) -> float:
+                       xp: NDArrayNumber1D,
+                       fp: NDArrayNumber1D) -> float:
     """
     Linearly interpolate or extrapolate at the point x from the closest 2 data
     points defined by xp, fp.
 
-    Able to compute extrapolation unlike NumPy interp(), and is also faster to
-    compute for single points when the function is only defined by 2 data
-    points.
+    Able to compute linear extrapolation unlike NumPy interp(). For computing
+    single points, faster than NumPy interp() if there is a reasonable chance
+    (>15%) that the point will be calculated using the first pair or last pair
+    of data points.
 
     Args:
         x: x coordinate to evaluate the extrapolated function
@@ -139,16 +139,15 @@ def linearInterpExtrap(x: float,
         Extrapolated function value at point x.
     """
     # Find the 2 data points to use for the linear extrapolation
-    if x < xp[1]:
+    if x <= xp[1]:
         xp = xp[:2]
         fp = fp[:2]
-    elif x > xp[-2]:
+    elif x >= xp[-2]:
         xp = xp[-2:]
         fp = fp[-2:]
     else:
-        # 3 or more data points defining the function, and the point x is not
-        # within the first pair or last pair of data points - fallback to
-        # NumPy interp()
+        # Point x is not within the first pair or last pair of data points,
+        # fallback to NumPy interp()
         return np.interp(x, xp, fp)
 
     # Calculate the linear extrapolation
@@ -200,7 +199,7 @@ def resample(signal: list[float] | NDArrayFloat1D,
 def getIndsWithoutConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, ...], np.dtype[Any]],
                                         axis: int = -1) -> np.ndarray[tuple[Any, ...], np.dtype[np.integer]]:
     """
-    Returns the indexes of the array that omitting elements that would cause
+    Returns the indexes of the array that omit elements that would cause
     consecutive duplicates.
 
     Based on https://stackoverflow.com/a/37840467.
@@ -238,44 +237,51 @@ def removeConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, ...], np.
     return arr[getIndsWithoutConsecutiveDuplicates(arr, axis)]
 
 
-def rotateVectorHeading(xyVector: NDArrayFloat1D,
+def rotateVectorHeading(xy_xyz: NDArrayFloat1D,
                         theta: float) -> NDArrayFloat1D:
     """
     Rotates the vector anti-clockwise in the 2D plane [x, y] by theta radians.
 
+    Supports both [x, y] and [x, y, z] coordinates as inputs - but does not
+    change the z component of the vector even if provided.
+
     Args:
-        xyVector: NumPy array in the form [x, y] representing the 2D vector.
-        theta: Angle in radians to rotate the vector, anti-clockwise.
+        xy_xyz: NumPy array in the form [x, y] or [x, y, z] representing the
+            2D vector.
+        theta: Angle in radians to rotate the vector, anti-clockwise on the 2D
+            [x, y] plane.
 
     Returns:
-        NumPy array in the form [x*, y*] representing the rotated vector.
+        NumPy array representing the rotated vector, in the form [x*, y*] (if
+            provided a 2D vector) or [x*, y* z] (if provided a 3D vector).
     """
     c = np.cos(theta)
     s = np.sin(theta)
-    xyVectorRotated = np.empty(2)
-    xyVectorRotated[0] = (c * xyVector[0]) - (s * xyVector[1])
-    xyVectorRotated[1] = (s * xyVector[0]) + (c * xyVector[1])
-    return xyVectorRotated
+    xy_xyzRotated = np.empty(2)
+    xy_xyzRotated[0] = (c * xy_xyz[0]) - (s * xy_xyz[1])
+    xy_xyzRotated[1] = (s * xy_xyz[0]) + (c * xy_xyz[1])
+    return xy_xyzRotated
 
 
 # -------------------------------------------------- NOT USED YET -------------------------------------------------- #
 
 
-def sideOfLine(xyPoint: NDArrayFloat2D,
-               xyLineStart: NDArrayFloat1D,
-               xyLineEnd: NDArrayFloat1D) -> float:
+def sideOfLine(xy_xyzPoint: NDArrayFloat2D,
+               xy_xyzLineStart: NDArrayFloat1D,
+               xy_xyzLineEnd: NDArrayFloat1D) -> float:
     """
     Returns a positive number if the point is on the left of the line, or a
-    negative number if the point is on the right of the line.
+    negative number if the point is on the right of the line, where "left" and
+    "right" are referenced to the 2D plane [x, y].
 
     Supports both [x, y] and [x, y, z] coordinates as inputs - but only computes
     in the 2D [x, y] plane.
 
     Args:
-        xyPoint: Coordinate of the point, in the form [x, y] or [x, y, z].
-        xyLineStart: Coordinate of the start of the line, in the form [x, y] or
-            [x, y, z].
-        xyLineEnd: Coordinate of the end of the line, in the form [x, y, or
+        xy_xyzPoint: Coordinate of the point, in the form [x, y] or [x, y, z].
+        xy_xyzLineStart: Coordinate of the start of the line, in the form [x, y]
+            or [x, y, z].
+        xy_xyzLineEnd: Coordinate of the end of the line, in the form [x, y] or
             [x, y, z].
 
     Returns:
@@ -285,4 +291,5 @@ def sideOfLine(xyPoint: NDArrayFloat2D,
 
         < 0 if the point is on the left of the line.
     """
-    return ((xyPoint[0] - xyLineStart[0]) * (xyLineEnd[1] - xyLineStart[1])) - ((xyPoint[1] - xyLineStart[1]) * (xyLineEnd[0] - xyLineStart[0]))
+    return (((xy_xyzPoint[0] - xy_xyzLineStart[0]) * (xy_xyzLineEnd[1] - xy_xyzLineStart[1]))
+            - ((xy_xyzPoint[1] - xy_xyzLineStart[1]) * (xy_xyzLineEnd[0] - xy_xyzLineStart[0])))

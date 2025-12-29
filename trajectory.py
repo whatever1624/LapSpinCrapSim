@@ -6,15 +6,16 @@ More documentation about the Trajectory object will come when I get around to
 making the Trajectory object.
 """
 
-# Import packages
-import time
-import scipy
-import shapely
-import numpy as np
-import matplotlib.pyplot as plt
+# Python standard libraries
+...
 
-# Import project python files
-from Utils.typeAliases import *
+# External libraries
+import scipy
+import numpy as np
+
+# Project python modules
+from Utils.typeAliases import Any, ListFloat2D, NDArrayFloat1D, NDArrayFloat2D, NDArrayInt1D, NDArrayNumber1D
+import Utils.utils as utils
 from track import Track
 
 

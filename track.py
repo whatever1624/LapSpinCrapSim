@@ -6,18 +6,16 @@ This includes the Track class, as well as the CoordinateArray, Event and Gate
 classes used to generate and define the track.
 """
 
-# Import packages
-import time
-import scipy
-import shapely
-import numpy as np
-import matplotlib.pyplot as plt
-from dataclasses import dataclass
+# Python standard libraries
 from typing import Literal
+from dataclasses import dataclass
 
-# Import project python files
-from Utils import utils
-from Utils.typeAliases import *
+# External libraries
+import numpy as np
+
+# Project python modules
+from Utils.typeAliases import Any, ListFloat2D, NDArrayFloat1D, NDArrayFloat2D, NDArrayInt1D, NDArrayNumber1D
+import Utils.utils as utils
 
 # Filename constants
 TRACK_PKL_FILENAME = "Track.pkl"

@@ -2,16 +2,14 @@
 Module for live plotting of the lap sim progress and optimisation progress.
 """
 
-# Import packages
-import time
-import scipy
-import shapely
-import numpy as np
-import matplotlib.pyplot as plt
+# Python standard libraries
 from typing import Literal
 
-# Import project python files
-from typeAliases import *
+# External libraries
+import matplotlib.pyplot as plt
+
+# Project python modules
+from Utils.typeAliases import Any, ListFloat2D, NDArrayFloat1D, NDArrayFloat2D, NDArrayInt1D, NDArrayNumber1D
 from track import Track
 from trajectory import Trajectory
 
