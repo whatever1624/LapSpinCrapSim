@@ -1,7 +1,9 @@
 """
 The track module is responsible for defining the track on which a trajectory
-can be created and optimised. This includes the Track class, as well as the
-CoordinateArray, Event and Gate classes used to generate and define the track.
+can be created and optimised.
+
+This includes the Track class, as well as the CoordinateArray, Event and Gate
+classes used to generate and define the track.
 """
 
 # Import packages
@@ -10,6 +12,8 @@ import scipy
 import shapely
 import numpy as np
 import matplotlib.pyplot as plt
+from dataclasses import dataclass
+from typing import Literal
 
 # Import project python files
 from Utils import utils
@@ -23,7 +27,8 @@ LIMIT_LEFT_HARD_FILENAME = "xyzLimitLeftHard.csv"
 LIMIT_RIGHT_HARD_FILENAME = "xyzLimitRightHard.csv"
 
 # CoordinateArray constants
-LP_FILT_SPATIAL_FREQ = 0.1              # Low-pass cutoff spatial frequency (cycles per metre)
+RESAMPLE_SPATIAL_FREQ = 1               # Frequency to resample the coordinate array for low-pass filtering (cycles/m)
+LP_FILT_SPATIAL_FREQ = 0.1              # Low-pass cutoff spatial frequency (cycles/m)
 LP_FILT_ORDER = 1                       # Order of the low-pass filter
 
 # Event constants
@@ -31,846 +36,464 @@ CUSTOM_EVENT_TYPES = []                 # List of valid event types for custom e
 INTERNAL_EVENT_TYPES = []               # List of event types for internal events
 
 # Gate constants
-GATE_STEP_DISTANCE = 5                  # Distance between each consecutive gate for gate creation
-                                        # (unless overridden by an event gate or the gate is skipped as it overlaps with neighbouring gates)
-                                        #   Higher gives more resolution for determining track limits
-                                        #   Too high may excessively slow track and trajectory generation
+REDUCED_DISTANCE_WINDOW = 250           # Default window (on both sides) for the distance bounds when getting a reduced coordinate array
+REDUCED_HEADING_WINDOW = np.pi          # Default window (on both sides) for the heading angle bounds when getting a reduced coordinate array
+
+GATE_STEP_DISTANCE = 5                  # Distance between each consecutive gate for gate creation (unless overridden by an event gate or the gate is
+                                        # skipped as it overlaps with neighbouring gates)
+                                        #  - Higher gives more resolution for determining track limits
+                                        #  - Too high may excessively slow track and trajectory generation
 
 GATE_MAX_WIDTH = 1000                   # Maximum width of the gate, used as the initial gate width during gate creation
 
-GATE_EXTEND_WIDTH = 10                  # Additional width beyond the respective hard track limits to extend the gate width on each side,
-                                        # to allow suitable penalties to be calculated if track limits are violated
-                                        #   Higher gives more robustness by allowing the trajectory that exceeds track limits to still be solved
-                                        #   Too high can cause gates to be skipped in tight corners due to overlapping
+GATE_EXTEND_WIDTH = 10                  # Additional width beyond the respective hard track limits to extend the gate width on each side, to allow
+                                        # suitable penalties to be calculated if track limits are violated
+                                        #  - Higher gives more robustness by allowing the trajectory that exceeds track limits to still be solved
+                                        #  - Too high can cause gates to be skipped in tight corners due to overlapping
 
 # Track generation constants
-CLOSED_TRACK_THRESHOLD_DISTANCE = 10    # Maximum (direct) distance from the start to finish coordinates of the provided soft track limits
-                                        # to consider the track closed, when using the automatic logic
+CLOSED_TRACK_THRESHOLD_DISTANCE = 10    # Maximum (direct) distance from the start to finish coordinates of the provided soft track limits to consider
+                                        # the track closed, when using the automatic logic
 
 DIRECTION_SIMILARITY_THRESHOLD = 0      # Threshold for the dot product of 2 vectors (each with magnitude of 1)
                                         # above which to consider the directions of the vectors as "similar"
 
+# Track plot constants
 TRACK_PLOT_AREA = 100                   # Area of the track plot saved after track generation (or if track generation raised an exception manually)
+TRACK_PLOT_SPATIAL_RESOLUTION = 5       # Spatial resolution of the saved track plot (in pixels/metre)
 
 
-def getLimitsDistances(limits: NDArrayFloat2D) -> NDArrayFloat1D:
+class CoordinateArray:
     """
-    Calculates the array of the cumulative distance along the limits
-    coordinates, assuming straight lines between limits coordinates.
+    Information about the coordinate array.
 
-    Args:
-        limits: 2D array where each index is an [x, y, z] coordinate of the
-            track limit, and each index increases the distance along the
-            track.
+    Has the function getReducedCoordArray() to get a reduced version of the
+    CoordinateArray object local to the region specified.
+    TODO: More detailed docstring on what this class does (and its functions)
 
-    Returns:
-        1D array representing the cumulative distance along the limits
-        coordinates, assuming straight lines between limits coordinates.
+    Attributes:
+        xyzCoords: ...
+        sCoords: ...
+        AHeadings: ...
+        AHeadingsFilt: ...
     """
-    n = np.size(limits, 0)
-    distances = np.empty(n)
-    distances[0] = 0
-    for i in range(1, n):
-        distances[i] = distances[i - 1] + scipy.linalg.norm(limits[i] - limits[i - 1])
+    def __init__(self,
+                 xyzCoords: NDArrayFloat2D,
+                 BClosedTrack: bool,
+                 BAllowNegativeInitAHeading: bool,
+                 sCoords: NDArrayFloat1D | None = None,
+                 AHeadings: NDArrayFloat1D | None = None,
+                 AHeadingsFilt: NDArrayFloat1D | None = None) -> None:
+        """
+        Initialises the coordinate array and calculates all of its attributes.
 
-    return distances
+        Makes sure that the coordinates are closed if the track is closed,
+        removes consecutive duplicate coordinates, calculates the cumulative
+        distance along the coordinates, then calculates the raw and filtered
+        unwrapped heading angle along the coordinates. If all attributes are
+        provided, uses those (without doing any validation).
 
-
-def getGateFromCoords(leftCoord: NDArrayFloat1D,
-                      rightCoord: NDArrayFloat1D,
-                      gateHalfWidth: float) -> tuple[shapely.LineString, NDArrayFloat1D, NDArrayFloat1D]:
-    """
-    Calculates the gate passing through the input coordinates. Only the x and y
-    coordinates are used for the gate calculation.
-
-    Args:
-        leftCoord: 1D array of the left coordinate of the gate, in the form
-            [x, y] or [x, y, z].
-        rightCoord: 1D array of the right coordinate of the gate, in the form
-            [x, y] or [x, y, z].
-        gateHalfWidth: Half-width of the gate.
-
-    Returns:
-        Tuple of (gate, gateMidpoint, gateDirection).
-
-        gate: Shapely LineString representing the gate.
-
-        gateMidpoint: Coordinates of the midpoint of the gate, in the form
-        [x, y].
-
-        gateDirection: Direction vector of the gate in the direction of forward
-        travel, normalised to a magnitude of 1.
-    """
-    gateMidpoint = np.array([(leftCoord[0] + rightCoord[0]) / 2, (leftCoord[1] + rightCoord[1]) / 2])
-    dx = rightCoord[0] - leftCoord[0]
-    dy = rightCoord[1] - leftCoord[1]
-    norm = scipy.linalg.norm([dx, dy])
-    gateDirection = np.array([-dy / norm, dx / norm])
-    gateLeft = gateMidpoint + ([-gateDirection[1] * gateHalfWidth, gateDirection[0] * gateHalfWidth])
-    gateRight = gateMidpoint + ([gateDirection[1] * gateHalfWidth, -gateDirection[0] * gateHalfWidth])
-    gate = shapely.LineString([gateLeft, gateRight])
-
-    return gate, gateMidpoint, gateDirection
-
-
-def getGateExtendLine(gateMidpoint: NDArrayFloat1D,
-                      gateDirection: NDArrayFloat1D,
-                      leftExtendWidth: float,
-                      rightExtendWidth: float) -> shapely.LineString:
-    """
-    Calculates the Shapely LineString of the gate defined by its midpoint,
-    direction, width on the left, and width on the right. The gate is extended
-    up to the extend limits.
-
-    Args:
-        gateMidpoint: Coordinates of the midpoint of the gate, in the form
-            [x, y].
-        gateDirection: Direction vector of the gate in the direction of forward
-            travel, normalised to a magnitude of 1.
-        leftExtendWidth: Distance from the gate midpoint to the left extend
-            limits.
-        rightExtendWidth: Distance from the gate midpoint to the right extend
-            limits.
-
-    Returns:
-        Shapely LineString of the gate defined by gateMidpoint and
-        gateDirection, with width on the left of leftExtendWidth and width on
-        the right of rightExtendWidth.
-    """
-    extendLineLeft = gateMidpoint + ([-gateDirection[1] * leftExtendWidth, gateDirection[0] * leftExtendWidth])
-    extendLineRight = gateMidpoint + ([gateDirection[1] * rightExtendWidth, -gateDirection[0] * rightExtendWidth])
-    extendLine = shapely.LineString([extendLineLeft, extendLineRight])
-    return extendLine
-
-
-def getReducedLimitsClosed(limits: NDArrayFloat2D,
-                           indexes: NDArrayInt1D,
-                           nLimits: int,
-                           distances: NDArrayFloat1D,
-                           prevDist: float,
-                           gateStep: float,
-                           reducedWindow: float) -> tuple[NDArrayFloat2D, list[float]]:
-    """
-    Calculates the reduced limits and reduced cumulative distances, for the
-    window specified.
-
-    The reduced limits are the reduced set of limits coordinates local to the
-    point. These are used to reduce the search space when finding the gate
-    intersection with the track limits, and give robustness for handling complex
-    figure-8 tracks.
-
-    Args:
-        limits: 2D array where each index is an [x, y, z] coordinate of the
-            track limit, and each index increases the distance along the
-            track.
-        indexes: Array of the integer indexes corresponding to the limits array.
-        nLimits: Number of limits coordinates (i.e. size of the limits array in
-            axis 0).
-        distances: 1D array representing the cumulative distance along the
-            limits coordinates.
-        prevDist: Distance along the limits where the previous gate intersected
-            with the limits.
-        gateStep: Distance between consecutive gate midpoints.
-        reducedWindow: Distance ahead and behind the naive estimation of the
-            gate intersection to include for the reduced limits.
-
-    Returns:
-        Tuple of (reducedLimitsCoords, reducedDist).
-
-        reducedLimitsCoords: 2D array of [x, y, z] coordinates of the limits
-        which were within the reducedWindow of the naive estimation of the gate
-        intersection. This includes the coordinates on the boundary of the
-        reducedWindow, calculated from linear interpolation.
-
-        reducedDist: List representing the cumulative distance along the limits
-        coordinates which were within the reducedWindow of the naive estimation
-        of the gate intersection. This includes the cumulative distances on the
-        boundary of the reducedWindow, calculated from linear interpolation.
-    """
-    # Sets the window to be length (2 * reducedWindow), centred around the point of expected intersection of the gate and limits
-    distStart = utils.wrap(prevDist + gateStep - reducedWindow, 0, distances[-1])
-    reducedDist = [distStart]
-    reducedLimitsCoords = np.array([np.interp(distStart, distances, limits[:, 0]), np.interp(distStart, distances, limits[:, 1])])
-    distStop = utils.wrap(prevDist + gateStep + reducedWindow, 0, distances[-1])
-
-    # Finds index of the limits array to start searching from
-    iStart = int(np.ceil(np.interp(distStart, distances, indexes)))
-    i = utils.wrap(iStart + 1, 0, nLimits) if distances[iStart] == distStart else utils.wrap(iStart, 0, nLimits)
-
-    # Iterate through the points in the limits coordinate array until the window is exceeded
-    prevLeftDist = distStart
-    passed = False
-    while not passed:
-        if prevLeftDist <= distStop <= distances[i] or distances[i] < prevLeftDist <= distStop:
-            # If the window has been exceeded, calculate the point at the end of the window using linear interpolation
-            passed = True
-            reducedDist.append(distStop)
-            reducedLimitsCoords = np.vstack((reducedLimitsCoords, [np.interp(distStop, distances, limits[:, 0]), np.interp(distStop, distances, limits[:, 1])]))
+        Args:
+            xyzCoords: Array of coordinates in order of increasing distance
+                along the track, where each coordinate is in the form [x, y, z].
+            BClosedTrack: Whether the coordinate array should be treated as
+                closed. A closed coordinate array means that the last coordinate
+                is equal ot the first coordinate.
+            BAllowNegativeInitAHeading: Whether to offset the initial heading
+                angle (both raw and unfiltered) by 2 pi to ensure that the
+                initial filtered heading angle is between -pi and pi.
+            sCoords: Overrides the automatically calculated attribute sCoords.
+            AHeadings: Overrides the automatically calculated attribute
+                AHeadings.
+            AHeadingsFilt: Overrides the automatically calculated attribute
+                AHeadingsFilt.
+        """
+        # Set xyzCoords, making sure this is a closed coordinate array if the track is closed (last coordinate equal to the first coordinate)
+        # and that consecutive duplicate coordinates are removed.
+        if BClosedTrack and xyzCoords[-1] != xyzCoords[0]:
+            self.xyzCoords = utils.removeConsecutiveDuplicates(np.vstack((xyzCoords, xyzCoords[0])), axis=0)
         else:
-            # If the point is still within the window, append it
-            reducedDist.append(distances[i])
-            reducedLimitsCoords = np.vstack((reducedLimitsCoords, limits[i][0:2]))
-            prevLeftDist = distances[i]
-            i = utils.wrap(i + 1, 0, nLimits)
+            self.xyzCoords = utils.removeConsecutiveDuplicates(xyzCoords, axis=0)
 
-        # Terminate the while loop if it went the whole way around the track
-        if i == iStart:
-            print("getReducedLimits went around the track without passing the window, terminating loop")
-            break
-
-    return reducedLimitsCoords, reducedDist
-
-
-def getLimitsExtendWidthClosed(gate: shapely.LineString,
-                               gateMidpoint: NDArrayFloat1D,
-                               limitsExtend: NDArrayFloat2D,
-                               nLimitsExtend: float,
-                               prevIndex: int,
-                               gateHalfWidth: float) -> tuple[float, int]:
-    """
-    Calculates the distance to the extend limits from the gate midpoint, and the
-    index from which the intersecting segment of the extend limits started.
-
-    Args:
-        gate: Shapely LineString representing the gate.
-        gateMidpoint: Coordinates of the midpoint of the gate, in the form
-            [x, y].
-        limitsExtend: 2D array where each index is an [x, y, z] coordinate of
-            the extend limit, and each index increases the distance along the
-            track.
-        nLimitsExtend: Number of extend limits coordinates (i.e. size of the
-            limits array in axis 0).
-        prevIndex: Index from which the segment of the extend limit which
-            intersected with the previous gate started.
-        gateHalfWidth: Half-width of the gate.
-
-    Returns:
-        Tuple of (extendWidth, prevIndex)
-
-        extendWidth: Distance to the extend limits from the gate midpoint, along
-        the width of the gate.
-
-        prevIndex: Index of the coordinates from which the segment of the extend
-        limits which intersected with the gate started.
-    """
-    gateMidpointPoint = shapely.Point(gateMidpoint)
-    gateCoords = gate.xy
-
-    if prevIndex < 0:
-        # The first gate
-        if utils.sideOfLine(limitsExtend[0][0], limitsExtend[0][1], gateCoords[0][0], gateCoords[1][0], gateCoords[0][1], gateCoords[1][0]) >= 0:
-            # First extend point is after the gate, so iterate backwards from the last extend point since this is a closed circuit
-            i = nLimitsExtend - 1
-            iStep = -1
+        # Set attributes if all are provided (without validation), or calculate attributes if not provided
+        if not any(a is None for a in [sCoords, AHeadings, AHeadingsFilt]):
+            self.sCoords = sCoords
+            self.AHeadings = AHeadings
+            self.AHeadingsFilt = AHeadingsFilt
         else:
-            # First extend point is before the gate, so iterate forwards from the first extend point
-            i = 0
-            iStep = 1
-    else:
-        # Normal procedure
-        i = prevIndex
-        iStep = 1
+            # Calculate sCoords - cumulative distance along the coordinates
+            dxyzCoords = np.diff(xyzCoords, axis=0)
+            dsCoords = np.linalg.norm(dxyzCoords, axis=1)
+            self.sCoords = np.append(0, np.cumsum(dsCoords))
 
-    # Iterate until an intersection is found (or if it went the whole way around the track)
-    # Whether iteration is forwards or backwards is determined by iStep (1 is forwards, -1 is backwards)
-    inLoop = False
-    while not (inLoop and i == prevIndex):
-        inLoop = True
-        iNext = utils.wrap(i + iStep, 0, nLimitsExtend)
-        extendSegment = shapely.LineString([limitsExtend[i][0:2], limitsExtend[iNext][0:2]])
-        if extendSegment.intersects(gate):
-            # If there is an intersection, update prevIndex and get the distance to the intersection
-            prevIndex = i
-            extendWidth = gateMidpointPoint.distance(extendSegment.intersection(gate))
-            return extendWidth, prevIndex
-        i = iNext
+            # Calculate AHeadings - unwrapped heading angle along the coordinates, calculated as the average of the forward and backward angles
+            AHeadingsTemp = np.unwrap(utils.getHeading(dxyzCoords))
+            AHeadingsForwards = np.append(AHeadingsTemp[0], AHeadingsTemp)
+            AHeadingsBackwards = np.append(AHeadingsTemp, AHeadingsTemp[0])
+            self.AHeadings = (AHeadingsForwards + AHeadingsBackwards) / 2
 
-    # If the iterations went the whole way around the track without finding an intersection, return extendWidth=gateHalfWidth, prevIndex=prevIndex
-    print("Didn't find an intersection with limitsExtend for gate at midpoint", gateMidpoint)
-    return gateHalfWidth, prevIndex
+            # Calculate AHeadingsFilt - low-pass filtered AHeadings
+            # Resample to regular intervals, then filter, then resample back to original signal base
+            AHeadingsResampled, sCoordsResampled = utils.resample(self.AHeadings, self.sCoords, RESAMPLE_SPATIAL_FREQ, True)
+            AHeadingsFiltResampled = utils.filt(AHeadingsResampled, RESAMPLE_SPATIAL_FREQ, 'low', LP_FILT_SPATIAL_FREQ, LP_FILT_ORDER)
+            self.AHeadingsFilt = np.interp(self.sCoords, sCoordsResampled, AHeadingsFiltResampled)
+
+            # If BAllowNegativeInitHeading, offset AHeading and AHeadingFilt by 2 pi if necessary such that
+            # the initial AHeadingFilt is in the range from -pi to pi
+            if BAllowNegativeInitAHeading and self.AHeadingsFilt[0] > np.pi:
+                self.AHeadings -= np.pi
+                self.AHeadingsFilt -= np.pi
 
 
-def getLimitsWidths(gate: shapely.LineString,
-                    gateMidpoint: NDArrayFloat1D,
-                    reducedLeft: shapely.LineString,
-                    reducedRight: shapely.LineString) -> tuple[float, float]:
-    """
-    Calculates the distance along the gate width to the left and right limits,
-    from the midpoint of the gate.
+    def getReducedCoordArray(self,
+                             sRef: float,
+                             sLower: float,
+                             sUpper: float,
+                             ALower: float,
+                             AUpper: float,
+                             BClosedTrack: bool) -> CoordinateArray:
+        """
+        TODO: Function docstring
+        """
+        def __getIndsDistance() -> NDArrayInt1D:
+            """
+            Gets the indexes of the coordinate array within the distance bounds.
 
-    Args:
-        gate: Shapely LineString representing the gate.
-        gateMidpoint: Coordinates of the midpoint of the gate, in the form
-            [x, y].
-        reducedLeft: Shapely LineString connecting all the coordinates in the
-            reduced left limits coordinate array, which is the reduced set of
-            limits coordinates local to the point.
-        reducedRight: Shapely LineString connecting all the coordinates in the
-            reduced right limits coordinate array, which is the reduced set of
-            limits coordinates local to the point.
+            If the track is closed, wraps around the track then sorts the
+            indexes in the forward direction of the track (i.e. the indexes will
+            wrap around back to 0 in the middle of the index array)
 
-    Returns:
-        Tuple of (leftWidth, rightWidth)
+            Same order as the self.sCoords array
 
-        leftWidth: Distance to the left limits from the gate midpoint, along
-        the width of the gate.
+            TODO: Function docstring
+            """
+            if BClosedTrack and (sLower < 0 or sUpper > self.sCoords[-1]):
+                # Closed track and the bounds will wrap, wrap the lower and upper distance bounds
+                sLowerWrapped = utils.wrap(sLower, 0, self.sCoords[-1])
+                sUpperWrapped = utils.wrap(sUpper, 0, self.sCoords[-1])
 
-        rightWidth: Distance to the right limits from the gate midpoint, along
-        the width of the gate.
-    """
-    gateMidpointPoint = shapely.Point(gateMidpoint)
+                # Check if the wrapped bounds cover the whole track
+                if sLowerWrapped >= sUpperWrapped:
+                    # Wrapped bounds cover the whole track, return all the indexes of the coordinate array
+                    inds_s = np.arange(len(self.sCoords))
+                else:
+                    # Wrapped bounds don't cover the whole track, get the indexes where the coordinate array is within the wrapped distance bounds,
+                    inds_s = np.where(sLowerWrapped <= self.sCoords <= sUpperWrapped)[0]
 
-    leftWidth = gateMidpointPoint.distance(reducedLeft.intersection(gate))
-    rightWidth = gateMidpointPoint.distance(reducedRight.intersection(gate))
-
-    return leftWidth, rightWidth
-
-
-def calcGate(params: list[float],
-             prevGateMidpoint: NDArrayFloat1D,
-             prevGateDirection: NDArrayFloat1D,
-             gateHalfWidth: float,
-             gateStep: float,
-             reducedLeft: shapely.LineString,
-             reducedRight: shapely.LineString) -> tuple[shapely.LineString, NDArrayFloat1D, NDArrayFloat1D, float, float]:
-    """
-    Calculates the gate from the parameters used in the gate finding function,
-    and information about the previous gate, then calculates the left and right
-    widths to the track limits.
-
-    Args:
-        params: List of [psi, theta], in this format for compatibility with the
-            SciPy optimisation used for gate finding.
-            psi is the anti-clockwise angle from the previous gate
-            direction, to place the midpoint of the new gate.
-            theta is the direction of the new gate, as an anti-clockwise angle
-            offset from psi.
-        prevGateMidpoint: Coordinates of the midpoint of the previous gate, in
-            the form [x, y].
-        prevGateDirection: Direction vector of the previous gate in the
-            direction of forward travel, normalised to a magnitude of 1.
-        gateHalfWidth: Half-width of the gate.
-        gateStep: Distance between consecutive gate midpoints.
-        reducedLeft: Shapely LineString connecting all the coordinates in the
-            reduced left limits coordinate array, which is the reduced set of
-            limits coordinates local to the point.
-        reducedRight: Shapely LineString connecting all the coordinates in the
-            reduced right limits coordinate array, which is the reduced set of
-            limits coordinates local to the point.
-
-    Returns:
-        Tuple of (gate, gateMidpoint, gateDirection, leftWidth, rightWidth).
-
-        gate: Shapely LineString representing the gate.
-
-        gateMidpoint: Coordinates of the midpoint of the gate, in the form
-            [x, y].
-        gateDirection: Direction vector of the gate in the direction of forward
-            travel, normalised to a magnitude of 1.
-
-        leftWidth: Distance to the left limits from the gate midpoint, along
-        the width of the gate.
-
-        rightWidth: Distance to the right limits from the gate midpoint, along
-        the width of the gate.
-    """
-    psi = params[0]  # gateHeading (angle from previous gate direction, positive anti-clockwise)
-    theta = params[1]  # gateAngle (angle from psi/gateHeading, positive anti-clockwise)
-
-    # Generate candidate midpoint
-    gateMidpoint = prevGateMidpoint + (utils.rotateVector2D(prevGateDirection, psi) * gateStep)
-
-    # Generate candidate gate
-    gateDirection = utils.rotateVector2D(prevGateDirection, psi + theta)
-    gateLeft = gateMidpoint + ([-gateDirection[1] * gateHalfWidth, gateDirection[0] * gateHalfWidth])
-    gateRight = gateMidpoint + ([gateDirection[1] * gateHalfWidth, -gateDirection[0] * gateHalfWidth])
-    gate = shapely.LineString([gateLeft, gateRight])
-
-    # Calculate leftWidth and rightWidth
-    leftWidth, rightWidth = getLimitsWidths(gate, gateMidpoint, reducedLeft, reducedRight)
-
-    # In case there was no intersection
-    if np.isnan(leftWidth):
-        leftWidth = gateHalfWidth
-    if np.isnan(rightWidth):
-        rightWidth = gateHalfWidth
-
-    return gate, gateMidpoint, gateDirection, leftWidth, rightWidth
-
-
-def gateObjFunc(params: list[float],
-                prevGateMidpoint: NDArrayFloat1D,
-                prevGateDirection: NDArrayFloat1D,
-                gateHalfWidth: float,
-                gateStep: float,
-                reducedLeft: shapely.LineString,
-                reducedRight: shapely.LineString) -> float:
-    """
-    Objective function for the gate finding optimisation.
-
-    This objective function aims to find the gate placement to be in the middle
-    of the track (i.e. equal distance to the left and right track limits), and
-    with the smallest width to the left and right track limits.
-
-    TODO: Explore using SciPy optimize root, with the objective function being
-        a vector of [leftWidth - rightWidth, leftAngle - rightAngle],
-        where leftAngle is the interior angle between the gate and the left
-        track limits, and similarly for rightAngle. The angles must be on the
-        same side of the gate.
-        Root finding approach should be faster than minimise, but if root
-        finding fails, fallback to SciPy minimise with this objective function.
-
-    Args:
-        params: List of [psi, theta], in this format for compatibility with the
-            SciPy optimisation used for gate finding.
-            psi is the anti-clockwise angle from the previous gate
-            direction, to place the midpoint of the new gate.
-            theta is the direction of the new gate, as an anti-clockwise angle
-            offset from psi.
-        prevGateMidpoint: Coordinates of the midpoint of the previous gate, in
-            the form [x, y].
-        prevGateDirection: Direction vector of the previous gate in the
-            direction of forward travel, normalised to a magnitude of 1.
-        gateHalfWidth: Half-width of the gate.
-        gateStep: Distance between consecutive gate midpoints.
-        reducedLeft: Shapely LineString connecting all the coordinates in the
-            reduced left limits coordinate array, which is the reduced set of
-            limits coordinates local to the point.
-        reducedRight: Shapely LineString connecting all the coordinates in the
-            reduced right limits coordinate array, which is the reduced set of
-            limits coordinates local to the point.
-
-    Returns:
-        leftWidth + rightWidth + abs(leftWidth - rightWidth), where these are
-        defined as below.
-
-        leftWidth: Distance to the left limits from the gate midpoint, along
-        the width of the gate.
-
-        rightWidth: Distance to the right limits from the gate midpoint, along
-        the width of the gate.
-    """
-    gate, gateMidpoint, gateDirection, leftWidth, rightWidth = calcGate(params, prevGateMidpoint, prevGateDirection, gateHalfWidth, gateStep, reducedLeft, reducedRight)
-    if leftWidth == gateHalfWidth or rightWidth == gateHalfWidth:
-        return 2 * gateHalfWidth + abs(leftWidth - rightWidth)
-    else:
-        return leftWidth + rightWidth + abs(leftWidth - rightWidth)
-
-
-def getGateLimitsIntersectionDistance(gate: shapely.LineString,
-                                      reducedLimitsCoords: NDArrayFloat2D,
-                                      reducedDist: list[float],
-                                      distances: NDArrayFloat1D,
-                                      isLeft: bool) -> float:
-    """
-    Calculates the distance along the track limits of the intersection with the
-    gate.
-
-    Args:
-        gate: Shapely LineString representing the gate.
-        reducedLimitsCoords: 2D array of [x, y, z] coordinates of the limits
-            which were within the reducedWindow of the naive estimation of the
-            gate intersection. This includes the coordinates on the boundary of
-            the reducedWindow, calculated from linear interpolation.
-        reducedDist: List representing the cumulative distance along the limits
-            coordinates which were within the reducedWindow of the naive
-            estimation of the gate intersection. This includes the cumulative
-            distances on the boundary of the reducedWindow, calculated from
-            linear interpolation.
-        distances: 1D array representing the cumulative distance along the
-            limits coordinates.
-        isLeft: Boolean specifying whether the limits passed in is on the left
-            or right.
-
-    Returns:
-        Distance along the coordinate array of the intersection with the gate.
-    """
-    # Iterates through each segment in the reduced limits coordinate array
-    for i in range(len(reducedDist) - 1):
-        # Creates a segment from adjacent points in the reduced limits coordinate array and checks if the segment intersects the gate
-        segment = shapely.LineString([reducedLimitsCoords[i], reducedLimitsCoords[i + 1]])
-        if segment.intersects(gate):
-            # If there is an intersection, get the intersection point (note this can technically return a LineString but that's super unlikely)
-            intersection = segment.intersection(gate)
-
-            # Unwrap distances so the interpolation works properly (only applies near the start line if the track is closed)
-            d1 = reducedDist[i]
-            d2 = reducedDist[i + 1]
-            if d1 > d2:
-                d1 -= distances[-1]
-
-            # Chooses axis with larger difference to do the linear interpolation on to find the distance along the limits coordinate array of intersection
-            if np.diff(segment.xy[0]) > np.diff(segment.xy[1]):
-                dist = np.interp(intersection.x, segment.xy[0], [d1, d2])
             else:
-                dist = np.interp(intersection.y, segment.xy[1], [d1, d2])
+                # Not a closed track or the bounds don't wrap, get the indexes where the coordinate array is within the distance bounds
+                inds_s = np.where(sLower <= self.sCoords <= sUpper)[0]
 
-            return dist
+            return inds_s
 
-    # If the gate never intersected with reducedLimitsCoords, return the first distance in the distances array,
-    # and the gate's x and y coordinates on the side corresponding to isLeft
-    if isLeft:
-        print("leftWidth == gateHalfWidth for gate", gate)
-        return reducedDist[0]
-    else:
-        print("rightWidth == gateHalfWidth for gate", gate)
-        return reducedDist[0]
+        def __getIndsHeading(sRef: float) -> NDArrayInt1D:
+            """
+            Internal function to get the indexes of the coordinate array within
+            the heading angle bounds, in the specified direction from the
+            reference distance.
+
+            Unsorted and may contain duplicates
+
+            TODO: Function docstring (mostly copy from the enclosing function)
+
+            TODO: Think this function can be optimised a lot by using NumPy more
+            """
+            # Interpolate the index at the reference distance
+            nCoords = len(self.sCoords)
+            startInd = np.interp(sRef, self.sCoords, np.arange(nCoords))
+
+            # Get arrays of all the indexes forward and backward of the reference distance - if the track is closed, include the indexes wrapping
+            # around back to the start index
+            # Also flip the backwards index array so that incrementing the index equates to moving backwards around the track
+            indsForward = np.arange(np.ceil(startInd), nCoords, 1)
+            indsBackward = np.arange(0, np.floor(startInd), 1)
+            if BClosedTrack:
+                indsForward = np.append(indsForward, indsBackward)
+                indsBackward = np.flip(indsForward)
+            else:
+                indsForward = indsForward
+                indsBackward = np.flip(indsBackward)
+
+            # Find the indexes within the heading angle bounds in the forwards and backwards direction - in each direction, stopping once the filtered
+            # heading angle exceeds the bounds
+            inds_A = []
+            for inds in (indsBackward, indsForward):
+                for i in inds:
+                    if ALower <= self.AHeadingsFilt[i] <= AUpper:
+                        inds_A.append(i)
+                    else:
+                        break
+
+            return np.array(inds_A)
+
+        def __getCoordOnBound(inds_s: NDArrayInt1D,
+                              inds_A: NDArrayInt1D,
+                              bound: Literal['start', 'finish']) -> tuple[NDArrayFloat1D, float, float, float]:
+            """
+            Calculates the coordinate on the bound limiting the valid indexes
+            extending earlier up the track (if indsIndex == 0) or further down
+            the track (if indsIndex == -1).
+
+            Returns the tuple of (xyzBound, sBound, ABound, AFiltBound)
+
+            Note that by definition, if the coordinate is on a heading bound but
+            not on a distance bound, it is being interpolated
+            """
+            # Validate that indsIndex is either 0 or -1
+            if bound == 'start':
+                indsIndex = 0
+            elif bound == 'finish':
+                indsIndex = -1
+            else:
+                raise ValueError(f"Invalid argument bound of '{bound}', must be either 'start' or 'finish'")
+
+            if inds_s[indsIndex] in inds_A:
+                # On a distance bound (lower bound if indsIndex is 0, upper bound if indsIndex is -1), wrap the bound if the track is closed
+                sBound = sLower if indsIndex == 0 else sUpper
+                if BClosedTrack:
+                    sBound = utils.wrap(sBound, 0, self.sCoords[-1])
+
+                # Check whether to interpolate or extrapolate
+                if BClosedTrack or 0 <= sBound <= self.sCoords[-1]:
+                    # Closed track or distance bound within the coordinate array, use linear interpolation
+                    xyzBound = np.array([np.interp(sBound, self.sCoords, self.xyzCoords[:, 0]),
+                                         np.interp(sBound, self.sCoords, self.xyzCoords[:, 1]),
+                                         np.interp(sBound, self.sCoords, self.xyzCoords[:, 2])])
+                    ABound = np.interp(sBound, self.sCoords, self.AHeadings)
+                    AFiltBound = np.interp(sBound, self.sCoords, self.AHeadingsFilt)
+                else:
+                    # Distance bound beyond the coordinate array, get the index of the closest distance to the distance bound
+                    indLimit = 0 if sBound < 0 else -1
+
+                    # Get the heading angle at the closest distance to the distance bound and calculate the vector of coordinate extrapolation
+                    AVec = self.AHeadingsFilt[indLimit]
+                    xyzVec = utils.rotateVectorHeading(np.array([0, 1, 0]) * (sBound - self.sCoords[indLimit]), AVec)
+
+                    # Add the vector of coordinate extrapolation to the coordinate at the closest distance to the distance bound
+                    xyzBound = self.xyzCoords[indLimit] + xyzVec
+
+                    # Approximate the coordinate array heading angle and filtered heading angle at this extrapolated coordinate as AVec
+                    ABound = AVec
+                    AFiltBound = AVec
+
+            else:
+                # On a heading angle bound, find which of the heading bounds is limiting (which of the heading bounds is closer)
+                AFiltBound = ALower if self.AHeadingsFilt[inds_A[indsIndex]] < (ALower + AUpper) / 2 else AUpper
+
+                # Get the indexes surrounding this heading bound
+                if indsIndex == 0:
+                    indLower = inds_A[indsIndex] - 1
+                    indUpper = inds_A[indsIndex]
+                else:
+                    indLower = inds_A[indsIndex]
+                    indUpper = inds_A[indsIndex] + 1
+
+                # Get the coordinate array attributes at the indexes surrounding this heading bound, ordered with increasing filtered heading angle
+                if self.AHeadingsFilt[indLower] < self.AHeadingsFilt[indUpper]:
+                    xyz = np.array([self.xyzCoords[indLower], self.xyzCoords[indUpper]])
+                    s = np.array([self.sCoords[indLower], self.sCoords[indUpper]])
+                    A = np.array([self.AHeadings[indLower], self.AHeadings[indUpper]])
+                    AFilt = np.array([self.AHeadingsFilt[indLower], self.AHeadingsFilt[indUpper]])
+                else:
+                    xyz = np.array([self.xyzCoords[indUpper], self.xyzCoords[indLower]])
+                    s = np.array([self.sCoords[indUpper], self.sCoords[indLower]])
+                    A = np.array([self.AHeadings[indUpper], self.AHeadings[indLower]])
+                    AFilt = np.array([self.AHeadingsFilt[indUpper], self.AHeadingsFilt[indLower]])
+
+                # Linearly interpolate the coordinate array attributes at the heading bound - note that utils.linearInterpExtrap() is used as it is
+                # faster when the function is defined only by 2 coordinates (which it has to be as AHeadingsFilt is not guaranteed to be monotonically
+                # increasing)
+                xyzBound = np.array([utils.linearInterpExtrap(AFiltBound, AFilt, xyz[:, 0]),
+                                     utils.linearInterpExtrap(AFiltBound, AFilt, xyz[:, 1]),
+                                     utils.linearInterpExtrap(AFiltBound, AFilt, xyz[:, 2])])
+                sBound = utils.linearInterpExtrap(AFiltBound, AFilt, s)
+                ABound = utils.linearInterpExtrap(AFiltBound, AFilt, A)
+
+            return xyzBound, sBound, ABound, AFiltBound
+
+        # Get the indexes of the coordinate array within the distance bounds, and within the heading angle bounds, separately
+        indsDistance = __getIndsDistance()
+        indsHeading = __getIndsHeading(sRef)
+
+        # Get the valid indexes satisfying both the distance and heading bounds, in ascending index order, then remove duplicates
+        indsValid = np.union1d(indsDistance, indsHeading)
+        indsValid = utils.removeConsecutiveDuplicates(indsValid)
+
+        # If the track is closed, roll the valid indexes array such that the indexes are continuously incrementing by 1, except for the wrap back to 0
+        # Technically only necessary if the valid indexes wrapped around the track
+        if BClosedTrack:
+            dindsValid = np.diff(indsValid)
+            if np.max(dindsValid) > 1:
+                offset = np.where(dindsValid > 1)[0][0] + 1
+                indsValid = np.roll(indsDistance, -offset)
+
+        # Calculate the coordinates and their attributes at the start and finish of the reduced coordinate array (i.e. the coordinates on the bounds)
+        xyzStart, sStart, AStart, AFiltStart = __getCoordOnBound(indsDistance, indsHeading, 'start')
+        xyzFinish, sFinish, AFinish, AFiltFinish = __getCoordOnBound(indsDistance, indsHeading, 'finish')
+
+        # Combine the calculated values on the bounds with the values of the coordinate array from the valid indexes
+        xyzCoords = np.vstack((xyzStart, self.xyzCoords[indsValid], xyzFinish))
+        sCoords = np.vstack((sStart, self.sCoords[indsValid], sFinish))
+        AHeadings = np.vstack((AStart, self.AHeadings[indsValid], AFinish))
+        AFiltHeadings = np.vstack((AFiltStart, self.AHeadingsFilt[indsValid], AFiltFinish))
+
+        # Return a new CoordinateArray instance initialised with its attributes provided (note that the BAllowNegativeInitAHeading flag has no effect
+        # when initialised with attributes provided, as is the case here)
+        return CoordinateArray(xyzCoords, BClosedTrack, False, sCoords, AHeadings, AFiltHeadings)
+
+
+@dataclass
+class Event:
+    """
+    Information about the event represented by an event gate.
+    TODO: More detailed docstring
+    """
+    name: str
+    type: str
+    BStart: bool
+    properties: dict[str, Any]
+
+
+class Gate:
+    """
+    Information about the gate.
+
+    The Gate object is represented only on the 2D plane [x, y] - otherwise
+    handling intersections with track limits would be practically impossible.
+
+    Has the function...
+
+    Note that with the gate, the midpoint attribute is not guaranteed to be the
+    midpoint of the gate between the soft track limits due to the gate finding
+    optimisation process, and the possibility of weird track limits making it
+    impossible to make the gate midpoint be technically correct - and this is
+    also why there are both lLimitLeftSoft and lLimitRightSoft variables.
+    TODO: More detailed docstring
+    """
+    def __init__(self,
+                 xyMidpoint: NDArrayFloat1D,
+                 AHeading: float,
+                 lLeft: float,
+                 lRight: float,
+                 event: Event | None = None,
+                 lLimitLeftSoft: float | None = None,
+                 lLimitRightSoft: float | None = None,
+                 lLimitLeftHard: float | None = None,
+                 lLimitRightHard: float | None = None,
+                 sLimitLeftSoft: float = 0,
+                 sLimitRightSoft: float = 0,
+                 sLimitLeftHard: float = 0,
+                 sLimitRightHard: float = 0) -> None:
+        """
+        TODO: Function docstring
+        """
+        ...
+
+
+    def calcDist(self,
+                 reducedCoordArray: CoordinateArray) -> tuple[float, float]:
+        """
+        TODO: Function docstring
+        """
+        ...
+
+    def calcLimitSofts(self,
+                       reducedLimitLeftSoft: CoordinateArray,
+                       reducedLimitRightSoft: CoordinateArray) -> None:
+        """
+        TODO: Function docstring
+        """
+        ...
+
+    def calcLimitHards(self,
+                       reducedLimitLeftHard: CoordinateArray,
+                       reducedLimitRightHard: CoordinateArray) -> None:
+        """
+        TODO: Function docstring
+        """
+        ...
+
+    def updateWidths(self,
+                     lLeft: float,
+                     lRight: float) -> None:
+        """
+        TODO: Function docstring
+        """
+        ...
+
+    def recalcMidpoint(self) -> None:
+        """
+        TODO: Function docstring
+        """
+        ...
 
 
 class Track:
+    """
+    Defines the track on which a trajectory can be created and optimised.
+
+    Has the functions calcTrackZ() and calcTrackNormal() to calculate the z
+    coordinate and [x, y, z] unit normal vector at a given [x, y] coordinate on
+    the track.
+    TODO: More detailed docstring
+    """
     def __init__(self,
-                 left: list[list[float]] | NDArrayFloat2D,
-                 right: list[list[float]] | NDArrayFloat2D,
-                 leftExtend: list[list[float]] | NDArrayFloat2D | None = None,
-                 rightExtend: list[list[float]] | NDArrayFloat2D | None = None,
-                 startLineCoords: list[list[float]] | NDArrayFloat2D | None = None,
-                 finishLineCoords: list[list[float]] | NDArrayFloat2D | None = None,
-                 isClosed: bool = None,
-                 gateStep: float = 10) -> None:
-        print("Initialising track")
-
-        # Constants (subject to change though) TODO: Consider moving all settings to a separate Python file, grouping them by module
-        isClosedTrackThreshold = 10     # Threshold gap size in metres for if the left/right track limits coordinate arrays provided are closed or not
-        gateHalfWidth = 50              # Half-width of the gate in metres (only used during
-        reducedWindow = 2 * gateStep    # Distance window for the reduced track left/right lists when creating gates
-
-        # Not sure if this will be needed in the future but currently used to not unnecessarily duplicate points in the track z height interpolators
-        leftExtendProvided = leftExtend is not None
-        rightExtendProvided = rightExtend is not None
-
-        # Convert relevant inputs to NumPy arrays and set leftExtend and rightExtend to left and right respectively if they're None
-        left = np.array(left)
-        right = np.array(right)
-        leftExtend = np.array(leftExtend) if leftExtendProvided else left
-        rightExtend = np.array(rightExtend) if rightExtendProvided else right
-        startLineCoords = np.array(startLineCoords) if startLineCoords else None
-        finishLineCoords = np.array(finishLineCoords) if finishLineCoords else None
-
-        # Get min/max x and y coordinates
-        xCoords = np.concat((left[:, 0], right[:, 0], leftExtend[:, 0], rightExtend[:, 0]))
-        yCoords = np.concat((left[:, 1], right[:, 1], leftExtend[:, 1], rightExtend[:, 1]))
-        self.xMin = np.min(xCoords)
-        self.xMax = np.max(xCoords)
-        self.yMin = np.min(yCoords)
-        self.yMax = np.max(yCoords)
-
-        # Creates track z height interpolators from all provided [x, y, z] coordinates - left, right, leftExtend and rightExtend arrays
-        # Create data point coordinate array ([x, y] coordinates)
-        coords = np.vstack((left[:, :2].copy(), right[:, :2].copy()))
-        if leftExtendProvided:
-            coords = np.vstack((coords, leftExtend[:, :2].copy()))
-        if rightExtendProvided:
-            coords = np.vstack((coords, rightExtend[:, :2].copy()))
-        # Create data value array (z values)
-        zValues = np.hstack((left[:, 2].copy(), right[:, 2].copy()))
-        if leftExtendProvided:
-            zValues = np.hstack((zValues, leftExtend[:, 2].copy()))
-        if rightExtendProvided:
-            zValues = np.hstack((zValues, rightExtend[:, 2].copy()))
-        # Create interpolators
-        self.zLinInterp = scipy.interpolate.LinearNDInterpolator(coords, zValues)
-        self.zNNInterp = scipy.interpolate.NearestNDInterpolator(coords, zValues)
-
-        # Determine whether the track provided is closed based on left and right arrays if not available
-        if isClosed is None:
-            gapLeft = scipy.linalg.norm(left[0] - left[-1])
-            gapRight = scipy.linalg.norm(right[0] - right[-1])
-            if max(gapLeft, gapRight) < isClosedTrackThreshold:
-                self.isClosed = True
-            else:
-                self.isClosed = False
-        else:
-            self.isClosed = isClosed
-
-        # Make sure left, right, leftExtend and rightExtend arrays are closed if the track is closed
-        if self.isClosed:
-            if not np.array_equal(left[0], left[-1]):
-                left = np.vstack((left, left[0]))
-            if not np.array_equal(right[0], right[-1]):
-                right = np.vstack((right, right[0]))
-            if not np.array_equal(leftExtend[0], leftExtend[-1]):
-                leftExtend = np.vstack((leftExtend, leftExtend[0]))
-            if not np.array_equal(rightExtend[0], rightExtend[-1]):
-                rightExtend = np.vstack((rightExtend, rightExtend[0]))
-
-        # Create start/finish gate coordinates if they aren't available, based on the left and right arrays
-        if startLineCoords is None:
-            startLineCoords = finishLineCoords if self.isClosed and finishLineCoords else np.array([left[0][:2], right[0][:2]])
-        if finishLineCoords is None:
-            finishLineCoords = startLineCoords if self.isClosed else np.array([left[-1][:2], right[-1][:2]])
-
-        # Create startLine/finishLine lines from their coordinates - to determine when to insert the actual startGate and finishGate into the gates
-        startLine = shapely.LineString(startLineCoords)
-        finishLine = shapely.LineString(finishLineCoords)
-
-        # Lists for gates and their related data - these will be turned into NumPy arrays at the end
-        self.gates = []
-        self.gatesMidpoint = []
-        self.gatesDirection = []
-        self.leftWidths = []
-        self.rightWidths = []
-        self.leftExtendWidths = []
-        self.rightExtendWidths = []
-
-        # Indexes of the start and finish gates in the gates arrays
-        self.startGateIndex = -1
-        self.finishGateIndex = -1
-
-        # Create arrays storing the distances along the left/right track limits
-        nLeft, leftDistances = getLimitsDistances(left)
-        nRight, rightDistances = getLimitsDistances(right)
-        nLeft = np.size(leftDistances)
-        nRight = np.size(leftDistances)
-
-        # For the extendWidth calculations
-        nLeftExtend = np.size(leftExtend, 0)
-        nRightExtend = np.size(rightExtend, 0)
-        prevLeftExtendIndex = -1
-        prevRightExtendIndex = -1
-
-        # Create the first gate and its related data, then append it to the relevant lists
-        gate, gateMidpoint, gateDirection = getGateFromCoords(left[0][:2], right[0][:2], gateHalfWidth)
-        leftWidth = scipy.linalg.norm(gateMidpoint - left[0][0:2])
-        rightWidth = scipy.linalg.norm(gateMidpoint - right[0][0:2])
-        leftExtendWidth, prevLeftExtendIndex = getLimitsExtendWidthClosed(gate, gateMidpoint, leftExtend, nLeftExtend, prevLeftExtendIndex, gateHalfWidth)
-        rightExtendWidth, prevRightExtendIndex = getLimitsExtendWidthClosed(gate, gateMidpoint, rightExtend, nRightExtend, prevRightExtendIndex, gateHalfWidth)
-        self.gates.append(gate)
-        self.gatesMidpoint.append(gateMidpoint)
-        self.gatesDirection.append(gateDirection)
-        self.leftWidths.append(leftWidth)
-        self.rightWidths.append(rightWidth)
-        self.leftExtendWidths.append(max(leftExtendWidth, leftWidth))
-        self.rightExtendWidths.append(max(rightExtendWidth, rightWidth))
-
-        # Create the last gate - for detecting when to stop gate creation so this doesn't have the related data and is only within track limits
-        lastGate = shapely.LineString([left[-1][:2], right[-1][:2]])
-
-        # Calculate subsequent gates - loop stops once we've gone around the whole track (also stops/throws an error if gate creation breaks)
-        print("Creating track gates")
-        leftIndexes = np.arange(nLeft)
-        rightIndexes = np.arange(nRight)
-        prevLeftDist = 0
-        prevRightDist = 0
-        while True:
-            # Create reducedLeftCoords and reducedRightCoords coordinate lists
-            if self.isClosed:
-                reducedLeftCoords, reducedLeftDist = getReducedLimitsClosed(left, leftIndexes, nLeft, leftDistances, prevLeftDist, gateStep, reducedWindow)
-                reducedRightCoords, reducedRightDist = getReducedLimitsClosed(right, rightIndexes, nRight, rightDistances, prevRightDist, gateStep, reducedWindow)
-            else:
-                raise Exception("No logic for if track is not closed - pls fix")
-                # Should be similar to if isClosed but instead of wrapping it clips to the min and max
-
-            # Create reducedLeft and reducedRight LineStrings
-            reducedLeft = shapely.LineString(reducedLeftCoords)
-            reducedRight = shapely.LineString(reducedRightCoords)
-
-            # Find gate heading and direction
-            params = scipy.optimize.minimize(gateObjFunc, [0, 0],
-                                             (gateMidpoint, gateDirection, gateHalfWidth, gateStep, reducedLeft, reducedRight),
-                                             method='Powell').x
-            # Experiment with different scipy minimize methods to see which is faster and also accuracy - ones that solved successfully:
-            #   'Nelder-Mead'   20.256154368287984
-            #   'Powell'        20.254838726180974
-            #   'L-BFGS-B'      20.25543032184799
-            #   'TNC'           20.261686355342427
-            #   'COBYLA'        FAILED
-            #   'COBYQA'        20.27994131907119
-            #   'SLSQP'         20.252698788205983
-            #   'trust-constr'  20.258087401969213
-
-            gate, gateMidpoint, gateDirection, leftWidth, rightWidth = calcGate(params, gateMidpoint, gateDirection, gateHalfWidth, gateStep, reducedLeft, reducedRight)
-
-            # Raise an exception if gate creation explodes (gateMidpoint goes beyond the bounds of xMin, xMax, yMin, yMax)
-            if gateMidpoint[0] < self.xMin or gateMidpoint[0] > self.xMax or gateMidpoint[1] < self.yMin or gateMidpoint[1] > self.yMax or leftWidth + rightWidth == 2 * gateHalfWidth:
-                raise Exception("Gate creation exploded - Gate with gateMidpoint " + str(gateMidpoint.tolist()) + " went beyond the bounds of [(xMin, xMax), (yMin, yMax)] of " + str([(float(self.xMin), float(self.xMax)), (float(self.yMin), float(self.yMax))]))
-
-            # Find the gate intersections with the left and right coordinate arrays
-            prevLeftDist = getGateLimitsIntersectionDistance(gate, reducedLeftCoords, reducedLeftDist, leftDistances, True)
-            prevRightDist = getGateLimitsIntersectionDistance(gate, reducedRightCoords, reducedRightDist, rightDistances, False)
-
-            # Find leftExtendWidth and rightExtendWidth - using candidates for the indexes to make sure the indexes only update if the gate was appended to the lists
-            leftExtendWidth, prevLeftExtendIndexCandidate = getLimitsExtendWidthClosed(gate, gateMidpoint, leftExtend, nLeftExtend, prevLeftExtendIndex, gateHalfWidth)
-            rightExtendWidth, prevRightExtendIndexCandidate = getLimitsExtendWidthClosed(gate, gateMidpoint, rightExtend, nRightExtend, prevRightExtendIndex, gateHalfWidth)
-
-            # Create a segment from the previous gateMidpoint to the current gateMidpoint - to check intersections with startLine, finishLine and last gate
-            midlineSegment = shapely.LineString([self.gatesMidpoint[-1], gateMidpoint])
-
-            # Check intersection with startLine
-            if midlineSegment.intersects(startLine) and self.startGateIndex < 0:
-                # Check that startGate isn't the previous gate or the current gate (should only happen if startCoords were automatically computed)
-                startGate, startGateMidpoint, startGateDirection = getGateFromCoords(startLineCoords[0], startLineCoords[1], gateHalfWidth)
-                if shapely.equals_exact(startGate, self.gates[-1]):
-                    # startGate is the previous gate
-                    self.startGateIndex = len(self.gates) - 1
-                elif shapely.equals_exact(startGate, gate):
-                    # startGate is the current gate
-                    self.startGateIndex = len(self.gates)
-                else:
-                    # Create start gate from coordinates then calculate all the gate information and append to the lists
-                    startGate, startGateMidpoint, startGateDirection = getGateFromCoords(startLineCoords[0], startLineCoords[1], gateHalfWidth)
-                    startLeftWidth, startRightWidth = getLimitsWidths(startGate, startGateMidpoint, reducedLeft, reducedRight)
-                    startLeftExtendWidth, prevLeftExtendIndex = getLimitsExtendWidthClosed(startGate, startGateMidpoint, leftExtend, nLeftExtend, prevLeftExtendIndex, gateHalfWidth)
-                    startRightExtendWidth, prevRightExtendIndex = getLimitsExtendWidthClosed(startGate, startGateMidpoint, rightExtend, nRightExtend, prevRightExtendIndex, gateHalfWidth)
-                    # Iterate backwards and pop previous gates that intersect with the startGate within the extend limits
-                    startGateExtendLine = getGateExtendLine(startGateMidpoint, startGateDirection, startLeftExtendWidth, startRightExtendWidth)
-                    while len(self.gates) >= 1:
-                        if startGateExtendLine.intersects(getGateExtendLine(self.gatesMidpoint[-1], self.gatesDirection[-1], self.leftExtendWidths[-1], self.rightExtendWidths[-1])):
-                            print("Gate at midpoint", self.gatesMidpoint[-1].tolist(), "and startGate both have gateExtendLines that intersect - removing this gate from the lists")
-                            self.gates.pop()
-                            self.gatesMidpoint.pop()
-                            self.gatesDirection.pop()
-                            self.leftWidths.pop()
-                            self.rightWidths.pop()
-                            self.leftExtendWidths.pop()
-                            self.rightExtendWidths.pop()
-                        else:
-                            break
-                    self.startGateIndex = len(self.gates)
-                    self.gates.append(startGate)
-                    self.gatesMidpoint.append(startGateMidpoint)
-                    self.gatesDirection.append(startGateDirection)
-                    self.leftWidths.append(startLeftWidth)
-                    self.rightWidths.append(startRightWidth)
-                    self.leftExtendWidths.append(max(startLeftExtendWidth, startLeftWidth))
-                    self.rightExtendWidths.append(max(startRightExtendWidth, startRightWidth))
-                print("Start gate index:", self.startGateIndex)
-
-            # Check intersection with finishLine - Note if finishLine is unique but very close to startLine then finishGateIndex = startGateIndex + 1
-            if midlineSegment.intersects(finishLine) and self.finishGateIndex < 0:
-                # Check that finishGate isn't the previous gate or the current gate (should only happen if startCoords were automatically computed)
-                finishGate, finishGateMidpoint, finishGateDirection = getGateFromCoords(finishLineCoords[0], finishLineCoords[1], gateHalfWidth)
-                if shapely.equals_exact(finishGate, self.gates[-1]):
-                    # finishGate is the previous gate
-                    self.finishGateIndex = len(self.gates) - 1
-                elif shapely.equals_exact(finishGate, gate):
-                    # finishGate is the current gate, Check that finishLine isn't also startLine (very rare possibility if self.isClosed)
-                    if shapely.equals_exact(startLine, finishLine):
-                        # finishLine is also startLine, which means we've already got it in the gates lists from the startLine intersection check
-                        self.finishGateIndex = self.startGateIndex
-                    else:
-                        self.finishGateIndex = len(self.gates)
-                else:
-                    # Create finish gate from coordinates then calculate all the gate information and append to the lists
-                    finishGate, finishGateMidpoint, finishGateDirection = getGateFromCoords(finishLineCoords[0], finishLineCoords[1], gateHalfWidth)
-                    finishLeftWidth, finishRightWidth = getLimitsWidths(finishGate, finishGateMidpoint, reducedLeft, reducedRight)
-                    finishLeftExtendWidth, prevLeftExtendIndex = getLimitsExtendWidthClosed(finishGate, finishGateMidpoint, leftExtend, nLeftExtend, prevLeftExtendIndex, gateHalfWidth)
-                    finishRightExtendWidth, prevRightExtendIndex = getLimitsExtendWidthClosed(finishGate, finishGateMidpoint, rightExtend, nRightExtend, prevRightExtendIndex, gateHalfWidth)
-                    # Iterate backwards and pop previous gates that intersect with the finishGate within the extend limits
-                    finishGateExtendLine = getGateExtendLine(finishGateMidpoint, finishGateDirection, finishLeftExtendWidth, finishRightExtendWidth)
-                    while len(self.gates) >= 1:
-                        if finishGateExtendLine.intersects(getGateExtendLine(self.gatesMidpoint[-1], self.gatesDirection[-1], self.leftExtendWidths[-1], self.rightExtendWidths[-1])):
-                            print("Gate at midpoint", self.gatesMidpoint[-1].tolist(), "and finishGate both have gateExtendLines that intersect - removing this gate from the lists")
-                            self.gates.pop()
-                            self.gatesMidpoint.pop()
-                            self.gatesDirection.pop()
-                            self.leftWidths.pop()
-                            self.rightWidths.pop()
-                            self.leftExtendWidths.pop()
-                            self.rightExtendWidths.pop()
-                        else:
-                            break
-                    self.finishGateIndex = len(self.gates)
-                    self.gates.append(finishGate)
-                    self.gatesMidpoint.append(finishGateMidpoint)
-                    self.gatesDirection.append(finishGateDirection)
-                    self.leftWidths.append(finishLeftWidth)
-                    self.rightWidths.append(finishRightWidth)
-                    self.leftExtendWidths.append(max(finishLeftExtendWidth, finishLeftWidth))
-                    self.rightExtendWidths.append(max(finishRightExtendWidth, finishRightWidth))
-                print("Finish gate index:", self.finishGateIndex)
-
-            # Check intersection with lastGate - must also be 4 or more gates in the list to break out of the gate creation loop
-            if midlineSegment.intersects(lastGate) and len(self.gates) >= 4:
-                # If self.isClosed then this gate will be the same as the first gate so it's unnecessary to add the last gate
-                # If track is not closed, re-make the last gate from coordinates and calculate all the gate information and append to lists
-                if not self.isClosed:
-                    lastGate, lastGateMidpoint, lastGateDirection = getGateFromCoords(left[-1][:2], right[-1][:2], gateHalfWidth)
-                    lastLeftWidth = scipy.linalg.norm(lastGateMidpoint - left[-1][0:2])
-                    lastRightWidth = scipy.linalg.norm(lastGateMidpoint - right[-1][0:2])
-                    lastLeftExtendWidth, prevLeftExtendIndex = getLimitsExtendWidthClosed(lastGate, lastGateMidpoint, leftExtend, nLeftExtend, prevLeftExtendIndex, gateHalfWidth)
-                    lastRightExtendWidth, prevRightExtendIndex = getLimitsExtendWidthClosed(lastGate, lastGateMidpoint, rightExtend, nRightExtend, prevRightExtendIndex, gateHalfWidth)
-                    # Iterate backwards and pop previous gates that intersect with the lastGate within the extend limits
-                    lastGateExtendLine = getGateExtendLine(lastGateMidpoint, lastGateDirection, lastLeftExtendWidth, lastRightExtendWidth)
-                    while len(self.gates) >= 1:
-                        if lastGateExtendLine.intersects(getGateExtendLine(self.gatesMidpoint[-1], self.gatesDirection[-1], self.leftExtendWidths[-1], self.rightExtendWidths[-1])):
-                            print("Gate at midpoint", self.gatesMidpoint[-1].tolist(), "and lastGate both have gateExtendLines that intersect - removing this gate from the lists")
-                            self.gates.pop()
-                            self.gatesMidpoint.pop()
-                            self.gatesDirection.pop()
-                            self.leftWidths.pop()
-                            self.rightWidths.pop()
-                            self.leftExtendWidths.pop()
-                            self.rightExtendWidths.pop()
-                        else:
-                            break
-                    self.gates.append(lastGate)
-                    self.gatesMidpoint.append(lastGateMidpoint)
-                    self.gatesDirection.append(lastGateDirection)
-                    self.leftWidths.append(lastLeftWidth)
-                    self.rightWidths.append(lastRightWidth)
-                    self.leftExtendWidths.append(max(lastLeftExtendWidth, lastLeftWidth))
-                    self.rightExtendWidths.append(max(lastRightExtendWidth, lastRightWidth))
-                # Exit the gate creation loop
-                print("Finished gate creation - Total number of gates:", len(self.gates))
-                break
-
-            # Check if this gate intersects with the previous gate within the extend limits
-            if getGateExtendLine(gateMidpoint, gateDirection, leftExtendWidth, rightExtendWidth).intersects(getGateExtendLine(self.gatesMidpoint[-1], self.gatesDirection[-1], self.leftExtendWidths[-1], self.rightExtendWidths[-1])):
-                print("Gate at midpoint", gateMidpoint.tolist(), "and previous gate both have gateExtendLines that intersect - not appending this gate to the lists")
-            else:
-                # If this gate doesn't intersect then append the gate and its information
-                self.gates.append(gate)
-                self.gatesMidpoint.append(gateMidpoint)
-                self.gatesDirection.append(gateDirection)
-                self.leftWidths.append(leftWidth)
-                self.rightWidths.append(rightWidth)
-                self.leftExtendWidths.append(max(leftExtendWidth, leftWidth))
-                self.rightExtendWidths.append(max(rightExtendWidth, rightWidth))
-                prevLeftExtendIndex = prevLeftExtendIndexCandidate
-                prevRightExtendIndex = prevRightExtendIndexCandidate
-
-        # Raise an exception if startLine or finishLine wasn't crossed when creating the gates
-        if self.startGateIndex < 0:
-            raise Exception("Start line was not crossed during gate creation")
-        if self.finishGateIndex < 0:
-            raise Exception("Finish line was not crossed during gate creation")
-
-        self.gates = np.array(self.gates)
-        self.gatesMidpoint = np.array(self.gatesMidpoint)
-        self.gatesDirection = np.array(self.gatesDirection)
-        self.leftWidths = np.array(self.leftWidths)
-        self.rightWidths = np.array(self.rightWidths)
-        self.leftExtendWidths = np.array(self.leftExtendWidths)
-        self.rightExtendWidths = np.array(self.rightExtendWidths)
-
-        # Track initialised :)
-        print("Track initialised")
-
-
-    def getZ(self,
-             x: float,
-             y: float) -> float:
+                 trackPath: str,
+                 BClosedTrackOverride: bool | None = None,
+                 BForceTrackGen: bool = False) -> None:
         """
-        Calculates the z coordinate (height) of the track at the input x and y coordinates.
-
-        Currently this is a very simple implementation using the linear interpolation maps.
-        TODO: Robust approach for compatibility with figure-8 tracks like Suzuka. Possible handling for complex tracks is using multiple interpolators
-            for each track segment in the local region around each gate (will need logic to define a sufficiently large local region to accommodate
-            arbitrarily long wheelbases but not include "overlapping" track segments if the track is an upwards spiral). Adding an additional argument
-            to determine the most recently passed gate (i.e. which interpolator to use).
-
-        Args:
-            x: x coordinate of the point.
-            y: y coordinate of the point.
-
-        Returns:
-            z coordinate of the track for the point (x, y).
+        TODO: Function docstring
         """
-        # Try linear interpolation first
-        z = self.zLinInterp(x, y)
+        ...
 
-        # Check if linear interpolation was successful - if failed then do nearest neighbour interpolation
-        if np.isnan(z):
-            z = self.zNNInterp(x, y)
+    def __initFromPkl(self,
+                      pklPath: str) -> None:
+        """
+        TODO: Function docstring
+        """
+        ...
 
-        return z
+    def __initFromTrackGen(self,
+                           trackPath: str,
+                           BClosedTrackOverride: bool | None) -> None:
+        ...
+        def __initGateFromCoords(xyLeft: NDArrayFloat1D,
+                                 xyRight: NDArrayFloat1D,
+                                 BAllowNegativeAHeading: bool) -> Gate:
+            """
+            TODO: Function docstring
+            """
+            ...
+
+        def __parseTrackFiles(trackPath: str) -> tuple[dict[str, CoordinateArray], dict[str, Gate]]:
+            """
+            TODO: Function docstring
+            """
+            ...
+
+        def __saveTrackPlot(trackPath: str,
+                            coordArraysDict: dict[str, Any],
+                            gates: list[Gate] | np.ndarray[tuple[int], np.dtype[Gate]],
+                            badGateInds: list[int] = []) -> None:
+            """
+            TODO: Function docstring
+            """
+            ...
+        ...
+
+    def calcTrackZ(self,
+                   xy: list[float] | NDArrayFloat1D,
+                   gateInd: int,
+                   BReturnNaN: bool = False) -> float:
+        """
+        TODO: Function docstring
+        """
+        ...
+
+    def calcTrackNormal(self,
+                        xy_xyz: list[float] | NDArrayFloat1D,
+                        gateInd: int) -> NDArrayFloat1D:
+        """
+        TODO: Function docstring
+        """
+        ...

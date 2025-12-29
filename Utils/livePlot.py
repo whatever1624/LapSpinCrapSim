@@ -8,6 +8,7 @@ import scipy
 import shapely
 import numpy as np
 import matplotlib.pyplot as plt
+from typing import Literal
 
 # Import project python files
 from typeAliases import *
@@ -15,6 +16,7 @@ from track import Track
 from trajectory import Trajectory
 
 # Constants
+VALID_AXS_NAMES = ['TrackTraj', 'OptProgress', 'LapSimProgress']
 TRACK_PLOT_ARTISTS = ['LeftLines', 'RightLines', 'LeftExtendLines', 'RightExtendLines', 'StartLine', 'FinishLine']
 TRAJ_PLOT_ARTISTS = ['ControlPoints', 'TrajectoryLines', 'TrackLimitsLinesList']
 OPT_PROG_PLOT_ARTISTS = ['ProgressLine', 'BestLine']
@@ -29,7 +31,7 @@ PLT_PAUSE_DURATION = 0.01   # Duration to pause for the matplotlib GUI to update
 TRACK_BUFFER = 20            # Buffer around the track edges
 
 
-def getAxsIndex(axsName: str) -> int:
+def getAxsIndex(axsName: Literal['TrackTraj', 'OptProgress', 'LapSimProgress']) -> int:
     """
     Returns the index for the axs corresponding to the axes name.
 
@@ -41,17 +43,18 @@ def getAxsIndex(axsName: str) -> int:
         Index for the axs corresponding to the axes name.
 
     Raises:
-        Exception: 'AXSNAME' is not a valid axes name. Valid axes names are
+        ValueError: 'axsName' is not a valid axes name. Valid axes names are
             ['TrackTraj', 'OptProgress', 'LapSimProgress'].
     """
-    if axsName == 'TrackTraj':
-        return 0
-    elif axsName == 'OptProgress':
-        return 1 if PLOTS_DICT['TrackTrajDict'] else 0
-    elif axsName == 'LapSimProgress':
-        return 2 if PLOTS_DICT['TrackTrajDict'] and PLOTS_DICT['OptProgressDict'] else 1 if PLOTS_DICT['TrackTrajDict'] or PLOTS_DICT['OptProgressDict'] else 0
+    if axsName in VALID_AXS_NAMES:
+        if axsName == 'LapSimProgress' and PLOTS_DICT['TrackTrajDict'] and PLOTS_DICT['OptProgressDict']:
+            return 2
+        elif (axsName == 'OptProgress' and PLOTS_DICT['TrackTrajDict']) or PLOTS_DICT['TrackTrajDict'] or PLOTS_DICT['OptProgressDict']:
+            return 1
+        else:
+            return 0
     else:
-        raise Exception("\'" + axsName + "\' is not a valid axes name. Valid axes names are " + str(['TrackTraj', 'OptProgress', 'LapSimProgress']) + ".")
+        raise ValueError(f"'{axsName}' is not a valid axes name. Valid axes names are {VALID_AXS_NAMES}.")
 
 
 def updateTrack(track: Track) -> None:
@@ -137,7 +140,9 @@ def plotTrack() -> None:
 
     ax = PLOTS_DICT['Fig'].get_axes()[getAxsIndex('TrackTraj')]
     trackTrajDict = PLOTS_DICT['TrackTrajDict']
-    track: Track | None = trackTrajDict.get('Track', None)  # Type hint just here so PyCharm knows "if track" condition can be true
+
+    # Type hint just here so PyCharm knows that "if track" condition can be true
+    track: Track | None = trackTrajDict.get('Track', None)
 
     removePlotArtists(trackTrajDict, TRACK_PLOT_ARTISTS)
 
@@ -148,8 +153,10 @@ def plotTrack() -> None:
         ax.set_ylim(track.yMin - TRACK_BUFFER, track.yMax + TRACK_BUFFER)
 
         # Plot LeftExtendLines and RightExtendLines (plot these first so LeftLines and RightLines plot over these)
-        leftExtend = track.gatesMidpoint + np.transpose([-track.gatesDirection[:, 1] * track.leftExtendWidths, track.gatesDirection[:, 0] * track.leftExtendWidths])
-        rightExtend = track.gatesMidpoint + np.transpose([track.gatesDirection[:, 1] * track.rightExtendWidths, -track.gatesDirection[:, 0] * track.rightExtendWidths])
+        leftExtend = track.gatesMidpoint + np.transpose([-track.gatesDirection[:, 1] * track.leftExtendWidths,
+                                                         track.gatesDirection[:, 0] * track.leftExtendWidths])
+        rightExtend = track.gatesMidpoint + np.transpose([track.gatesDirection[:, 1] * track.rightExtendWidths,
+                                                          -track.gatesDirection[:, 0] * track.rightExtendWidths])
         if track.isClosed:
             leftExtend = np.vstack((leftExtend, leftExtend[0]))
             rightExtend = np.vstack((rightExtend, rightExtend[0]))
@@ -202,7 +209,9 @@ def plotTraj() -> None:
     """
     axsIndex = getAxsIndex('TrackTraj')
     trackTrajDict = PLOTS_DICT['TrackTrajDict']
-    trajectory: Trajectory | None = trackTrajDict.get('Trajectory', None)  # Type hint just here so PyCharm knows "if track" condition can be true
+
+    # Type hint just here so PyCharm knows that "if trajectory" condition can be true
+    trajectory: Trajectory | None = trackTrajDict.get('Trajectory', None)
 
     removePlotArtists(trackTrajDict, TRAJ_PLOT_ARTISTS)
 
