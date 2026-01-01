@@ -5,13 +5,13 @@ can be created and optimised.
 This includes the Track class, as well as the CoordinateArray, Event and Gate
 classes used to generate and define the track.
 """
-
 # Python standard libraries
 from typing import Literal
 from dataclasses import dataclass
 
 # External libraries
 import numpy as np
+import shapely
 
 # Project python modules
 from Utils.typeAliases import Any, ListFloat2D, NDArrayFloat1D, NDArrayFloat2D, NDArrayInt1D, NDArrayNumber1D
@@ -25,45 +25,52 @@ LIMIT_LEFT_HARD_FILENAME = "xyzLimitLeftHard.csv"
 LIMIT_RIGHT_HARD_FILENAME = "xyzLimitRightHard.csv"
 
 # CoordinateArray constants
-RESAMPLE_SPATIAL_FREQ = 1               # Frequency to resample the coordinate array for low-pass filtering (cycles/m)
-LP_FILT_SPATIAL_FREQ = 0.1              # Low-pass cutoff spatial frequency (cycles/m)
-LP_FILT_ORDER = 1                       # Order of the low-pass filter
+RESAMPLE_SPATIAL_FREQ = 1                       # Frequency to resample the coordinate array for low-pass filtering (cycles/m)
+LP_FILT_SPATIAL_FREQ = 0.1                      # Low-pass cutoff spatial frequency (cycles/m)
+LP_FILT_ORDER = 1                               # Order of the low-pass filter
 
 # Event constants
-CUSTOM_EVENT_TYPES = []                 # List of valid event types for custom events
-INTERNAL_EVENT_TYPES = []               # List of event types for internal events
+CUSTOM_EVENT_TYPES = Literal['TODO']            # List of valid event types for custom events TODO: Implement custom events and add them here
+INTERNAL_EVENT_TYPES = Literal['GateCreation',  # Valid event types for internal events
+                               'StartFinish']
 
 # Gate constants
-REDUCED_DISTANCE_WINDOW = 250           # Default window (on both sides) for the distance bounds when getting a reduced coordinate array
-REDUCED_HEADING_WINDOW = np.pi          # Default window (on both sides) for the heading angle bounds when getting a reduced coordinate array
+GATE_MAX_WIDTH = 1000                           # Maximum width of the gate, used as the initial gate width during gate creation
 
-GATE_STEP_DISTANCE = 5                  # Distance between each consecutive gate for gate creation (unless overridden by an event gate or the gate is
-                                        # skipped as it overlaps with neighbouring gates)
-                                        #  - Higher gives more resolution for determining track limits
-                                        #  - Too high may excessively slow track and trajectory generation
-
-GATE_MAX_WIDTH = 1000                   # Maximum width of the gate, used as the initial gate width during gate creation
-
-GATE_EXTEND_WIDTH = 10                  # Additional width beyond the respective hard track limits to extend the gate width on each side, to allow
-                                        # suitable penalties to be calculated if track limits are violated
-                                        #  - Higher gives more robustness by allowing the trajectory that exceeds track limits to still be solved
-                                        #  - Too high can cause gates to be skipped in tight corners due to overlapping
+GATE_EXTEND_WIDTH = 10                          # Additional width beyond the respective hard track limits to extend the gate width on each side, to
+                                                # allow suitable penalties to be calculated if track limits are violated
+                                                #  - Higher gives more robustness, allowing a trajectory that exceeds track limits to still be solved
+                                                #  - Too high can cause gates to be skipped in tight corners due to overlapping, losing track limits
+                                                #    resolution
 
 # Track generation constants
-CLOSED_TRACK_THRESHOLD_DISTANCE = 10    # Maximum (direct) distance from the start to finish coordinates of the provided soft track limits to consider
-                                        # the track closed, when using the automatic logic
+CLOSED_TRACK_THRESHOLD_DISTANCE = 10            # Maximum distance (as the crow flies) from the start to finish coordinates of the provided soft track
+                                                # limits to consider the track closed, when using the automatic logic
 
-DIRECTION_SIMILARITY_THRESHOLD = 0      # Threshold for the dot product of 2 vectors (each with magnitude of 1)
-                                        # above which to consider the directions of the vectors as "similar"
+DIRECTION_SIMILARITY_THRESHOLD = 0              # Threshold for the dot product of 2 vectors (each with magnitude of 1) above which to consider the
+                                                # directions of the vectors as "similar"
+
+GATE_STEP_DISTANCE = 5                          # Distance between each consecutive gate for gate creation (unless overridden by an event gate or the
+                                                # gate is skipped as it overlaps with neighbouring gates)
+                                                #  - Higher gives more resolution for determining track limits
+                                                #  - Too high may excessively slow track and trajectory generation
+
+REDUCED_DISTANCE_WINDOW = 250                   # Window on each side for the distance bounds of the reduced coordinate array for gate creation
+REDUCED_HEADING_WINDOW = np.pi                  # Window on each side for the heading angle bounds of the reduced coordinate array for gate creation
 
 # Track plot constants
-TRACK_PLOT_AREA = 100                   # Area of the track plot saved after track generation (or if track generation raised an exception manually)
-TRACK_PLOT_SPATIAL_RESOLUTION = 5       # Spatial resolution of the saved track plot (in pixels/metre)
+TRACK_PLOT_AREA = 100                           # Area of the track plot saved after track generation or if track generation raised an exception
+                                                # manually (in square inches)
+
+TRACK_PLOT_SPATIAL_RESOLUTION = 5               # Spatial resolution of the saved track plot (in pixels/metre)
 
 
 class CoordinateArray:
     """
     Array of coordinates and its derived attributes.
+
+    Used for track generation to store the coordinates defining the track limits
+    and track mesh.
 
     Has methods:
         - getReducedCoordArray()
@@ -160,7 +167,6 @@ class CoordinateArray:
                 self.AHeadings -= np.pi
                 self.AHeadingsFilt -= np.pi
 
-
     def getReducedCoordArray(self,
                              sRef: float,
                              sLower: float,
@@ -176,10 +182,19 @@ class CoordinateArray:
         until it gets to a distance or heading bound.
 
         Args:
-            sRef: Reference distance along the coordinate array. Must be within
-                the sLower and sUpper distance bounds.
-            sLower: Lower distance bound. Must be <= sRef.
-            sUpper: Upper distance bound. Must be >= sRef.
+            sRef: Reference distance along the coordinate array. If the track is
+                not closed, must be within the sLower and sUpper distance
+                bounds.
+            sLower: Lower distance bound. If the track is closed, can be
+                provided wrapped or unwrapped (with the exception being the
+                bounds would wrap to enclose the entire track, in which case,
+                must be provided unwrapped for the expected behaviour). If the
+                track is not closed, must be <= sRef.
+            sUpper: Lower distance bound. If the track is closed, can be
+                provided wrapped or unwrapped (with the exception being the
+                bounds would wrap to enclose the entire track, in which case,
+                must be provided unwrapped for the expected behaviour). If the
+                track is not closed, must be <= sRef.
             ALower: Lower unwrapped heading angle bound.
             AUpper: Upper unwrapped heading angle bound.
 
@@ -205,15 +220,17 @@ class CoordinateArray:
             Internal function to get all the indexes of the coordinate array
             within the distance bounds.
 
-            For closed tracks, wraps the distance bounds around the track, and
-            computes "within the distance bounds" in the correct direction.
+            For closed tracks, the distance bounds can be either wrapped or
+            unwrapped (their wrapped values are calculated and used internally),
+            and computes "within the distance bounds" in the correct direction.
 
             Returns:
                 All the indexes of the coordinate array within the distance
                 bounds [sLower, sUpper], in order as the self.sCoords array.
             """
-            if BClosedTrack and (sLower < 0 or sUpper > self.sCoords[-1]):
-                # Closed track and the bounds will wrap, so wrap the lower and upper distance bounds
+            if BClosedTrack and (sLower < 0 or sUpper > self.sCoords[-1] or sLower > sUpper):
+                # Closed track and the bounds will wrap, or closed track and the bounds are already wrapped
+                # Wrap the lower and upper distance bounds
                 sLowerWrapped = utils.wrap(sLower, 0, self.sCoords[-1])
                 sUpperWrapped = utils.wrap(sUpper, 0, self.sCoords[-1])
 
@@ -322,11 +339,9 @@ class CoordinateArray:
                 AFiltBound: Low-pass filtered unwrapped heading angle at the
                     bound (calculated along the original coordinate array).
             """
-            # Validate that indsIndex is either 0 or -1
-            if BStart:
-                indsIndex = 0
-            else:
-                indsIndex = -1
+            # Get the index at the start/finish of the valid indexes satisfying both the distance and heading angle bounds to calculate the coordinate
+            # on the bound
+            indsIndex = 0 if BStart else -1
 
             if indsValid[indsIndex] in indsHeading:
                 # On a distance bound (lower bound if indsIndex is 0, upper bound if indsIndex is -1), wrap the bound if the track is closed
@@ -369,15 +384,15 @@ class CoordinateArray:
 
                 # Get the coordinate array attributes at the indexes surrounding this heading bound, ordered with increasing filtered heading angle
                 if self.AHeadingsFilt[indLower] < self.AHeadingsFilt[indUpper]:
-                    xyz = np.array([self.xyzCoords[indLower], self.xyzCoords[indUpper]])
-                    s = np.array([self.sCoords[indLower], self.sCoords[indUpper]])
-                    A = np.array([self.AHeadings[indLower], self.AHeadings[indUpper]])
-                    AFilt = np.array([self.AHeadingsFilt[indLower], self.AHeadingsFilt[indUpper]])
+                    i1 = indLower
+                    i2 = indUpper
                 else:
-                    xyz = np.array([self.xyzCoords[indUpper], self.xyzCoords[indLower]])
-                    s = np.array([self.sCoords[indUpper], self.sCoords[indLower]])
-                    A = np.array([self.AHeadings[indUpper], self.AHeadings[indLower]])
-                    AFilt = np.array([self.AHeadingsFilt[indUpper], self.AHeadingsFilt[indLower]])
+                    i1 = indUpper
+                    i2 = indLower
+                xyz = np.array([self.xyzCoords[i1], self.xyzCoords[i2]])
+                s = np.array([self.sCoords[i1], self.sCoords[i2]])
+                A = np.array([self.AHeadings[i1], self.AHeadings[i2]])
+                AFilt = np.array([self.AHeadingsFilt[i1], self.AHeadingsFilt[i2]])
 
                 # Linearly interpolate the coordinate array attributes at the heading bound - note that utils.linearInterpExtrap() is used as it is
                 # faster when the function is defined only by 2 coordinates (which it has to be as AHeadingsFilt is not guaranteed to be monotonically
@@ -408,12 +423,29 @@ class CoordinateArray:
 
 @dataclass
 class Event:
+
     """
-    Information about the event represented by an event gate.
-    TODO: More detailed docstring
+    Event data, which is then stored in the corresponding Gate object.
+
+    Custom event types:
+        - TODO: Implement the custom event types (DRS, SLM, SpeedLimiter etc.)
+
+    Internal event types:
+        - StartFinish
+        - GateCreation
+
+    Attributes:
+        name: Name of the event gates pair. Note that for each event gate name,
+            there must be a start and finish gate.
+        type: Event type, see above for the valid event gate types.
+        BStart: Whether the gate object storing the event marks the start or
+            finish of the event.
+        properties: Dictionary containing the properties specific to the event
+            type required to completely define it. Empty if the event type does
+            not require any additional information to be defined.
     """
     name: str
-    type: str
+    type: CUSTOM_EVENT_TYPES | INTERNAL_EVENT_TYPES
     BStart: bool
     properties: dict[str, Any]
 
@@ -424,58 +456,194 @@ class Gate:
 
     The Gate object is represented only on the 2D plane [x, y] - otherwise
     handling intersections with track limits would be practically impossible.
+    Gates are used to define event start and finish locations and define the
+    track limits used to validate generated trajectories.
 
-    Has the function...
+    Has methods:
+        - TODO: Fill this in
 
-    Note that with the gate, the midpoint attribute is not guaranteed to be the
-    midpoint of the gate between the soft track limits due to the gate finding
-    optimisation process, and the possibility of weird track limits making it
-    impossible to make the gate midpoint be technically correct - and this is
-    also why there are both lLimitLeftSoft and lLimitRightSoft variables.
-    TODO: More detailed docstring
+    Attributes:
+        line: Straight line from the left coordinate to the right coordinate, in
+            the 2D plane [x, y]. Shapely LineString object.
+        xyMidpoint: Midpoint between the left and right soft track limits,
+            measured along the line of the gate in the 2D plane [x, y]. 1D array
+            of floats.
+        AHeading: Unwrapped heading angle of the gate, in radians. 0 corresponds
+            to positive y (north) and increasing clockwise. This should align
+            with the unwrapped heading angles of the CoordinateArray objects.
+            Float.
+        event: Information about the event starting/ending at this gate. If this
+            is None, then this is a "regular" gate and does not define an event
+            start or finish location. Event object or None.
+        lLeft: Width of the gate to the left of xyMidpoint. Float.
+        lRight: Width of the gate to the right of xyMidpoint. Float.
+        lLimitLeftSoft: Unsigned distance from xyMidpoint to the intersection
+            with the left soft track limit. Float or None.
+        lLimitRightSoft: Unsigned distance from xyMidpoint to the intersection
+            with the right soft track limit. Float or None.
+        lLimitLeftHard: Unsigned distance from xyMidpoint to the intersection
+            with the left hard track limit. Float or None.
+        lLimitRightHard: Unsigned distance from xyMidpoint to the intersection
+            with the right hard track limit. Float or None.
     """
     def __init__(self,
                  xyMidpoint: NDArrayFloat1D,
                  AHeading: float,
-                 lLeft: float,
-                 lRight: float,
                  event: Event | None = None,
+                 lLeft: float = GATE_MAX_WIDTH / 2,
+                 lRight: float = GATE_MAX_WIDTH / 2,
                  lLimitLeftSoft: float | None = None,
                  lLimitRightSoft: float | None = None,
                  lLimitLeftHard: float | None = None,
-                 lLimitRightHard: float | None = None,
-                 sLimitLeftSoft: float = 0,
-                 sLimitRightSoft: float = 0,
-                 sLimitLeftHard: float = 0,
-                 sLimitRightHard: float = 0) -> None:
+                 lLimitRightHard: float | None = None) -> None:
         """
-        TODO: Function docstring
-        """
-        ...
+        Initialises the Gate object, setting all the attributes provided and
+        generating the gate line.
 
+        Args:
+            xyMidpoint: Midpoint of the gate between the left and right soft
+                track limits, in the 2D plane [x, y].
+            AHeading: Unwrapped heading angle of the gate, in radians. 0
+                corresponds to positive y (north) and increasing clockwise. This
+                should align with the unwrapped heading angles of the
+                CoordinateArray objects.
+            event: Information about the event starting/ending at this gate. If
+                this is None, then this is a "regular" gate and does not define
+                an event start or finish location.
+            lLeft: Width of the gate to the left of xyMidpoint.
+            lRight: Width of the gate to the right of xyMidpoint.
+            lLimitLeftSoft: Unsigned distance from xyMidpoint to the
+                intersection with the left soft track limit.
+            lLimitRightSoft: Unsigned distance from xyMidpoint to the
+                intersection with the right soft track limit.
+            lLimitLeftHard: Unsigned distance from xyMidpoint to the
+                intersection with the left hard track limit.
+            lLimitRightHard: Unsigned distance from xyMidpoint to the
+                intersection with the right hard track limit.
+        """
+        # Set raw attributes
+        self.xyMidpoint = xyMidpoint
+        self.AHeading = AHeading
+        self.event = event
+        self.lLeft = lLeft
+        self.lRight = lRight
+        self.lLimitLeftSoft = lLimitLeftSoft
+        self.lLimitRightSoft = lLimitRightSoft
+        self.lLimitLeftHard = lLimitLeftHard
+        self.lLimitRightHard = lLimitRightHard
 
-    def calcDist(self,
-                 reducedCoordArray: CoordinateArray) -> tuple[float, float]:
-        """
-        TODO: Function docstring
-        """
-        ...
+        # Calculate the vectors to the left and right coordinates of the gate, relative to xyMidpoint
+        xyVecLeft = utils.rotateVectorHeading(np.array([-lLeft, 0]), AHeading)
+        xyVecRight = utils.rotateVectorHeading(np.array([lRight, 0]), AHeading)
 
-    def calcLimitSofts(self,
-                       reducedLimitLeftSoft: CoordinateArray,
-                       reducedLimitRightSoft: CoordinateArray) -> None:
-        """
-        TODO: Function docstring
-        """
-        ...
+        # Calculate the left and right coordinates of the gate
+        xyLeft = xyMidpoint + xyVecLeft
+        xyRight = xyMidpoint + xyVecRight
 
-    def calcLimitHards(self,
-                       reducedLimitLeftHard: CoordinateArray,
-                       reducedLimitRightHard: CoordinateArray) -> None:
+        # Generate the gate line
+        self.line = shapely.LineString([xyLeft, xyRight])
+
+    def calcIntersection(self,
+                         reducedCoordArray: CoordinateArray,
+                         key: str = '') -> tuple[float, float]:
         """
-        TODO: Function docstring
+        Calculate the gate intersection with the reduced CoordinateArray object
+        provided.
+
+        Finds the distance from the gate xyMidpoint to the intersection point,
+        and the distance along the (original) CoordinateArray object of the
+        intersection.
+
+        Updates the relevant lLimitXY attribute for the key provided.
+
+        Args:
+            reducedCoordArray: Reduced CoordinateArray object for the local
+                region around the gate.
+            key: Name of the coordinate array passed in. Automatically updates
+                the relevant lLimitXY attribute if the key is one of
+                'limitLeftSoft', 'limitRightSoft', 'limitLeftHard' or
+                'limitRightHard'.
+
+        Returns:
+            Tuple of (lIntersection, sIntersection).
+
+            lIntersection: Unsigned distance from the gate midpoint to the
+                intersection between the gate and reducedCoordArray. If there
+                is no intersection, this will be GATE_MAX_WIDTH / 2.
+
+            sIntersection: Distance along reducedCoordArray of the intersection
+                with the gate, as calculated from its sCoords attribute. If
+                there is no intersection, this will be the distance along
+                reducedCoordArray of the closest point to the gate midpoint.
         """
-        ...
+        # Create a Shapely LineString from the reduced coordinate array
+        lineCoordArray = shapely.LineString(reducedCoordArray.xyzCoords[:2])
+
+        # Find the geometry shared between the gate and the reduced coordinate array - note that as the gate is a straight line and lineCoordArray is
+        # a line, their shared geometry can only be Shapely Point or Shapely LineString objects, where the LineString objects must be straight lines
+        # defined by their start and finish coordinates (unless there is no intersection
+        intersections = shapely.intersection(self.line, lineCoordArray)
+
+        # Check if there was an intersection
+        if intersections.is_empty:
+            # No intersection between the gate and the reduced coordinate array, set lIntersection to half of the gate max width, and sIntersection to
+            # the distance along the coordinate array of the closest point to the gate midpoint
+            lIntersection = GATE_MAX_WIDTH / 2
+            sIntersection = reducedCoordArray.sCoords[0] + lineCoordArray.project(shapely.Point(self.xyMidpoint))
+
+        else:
+            # Gate intersects with the reduced coordinate array, get a list of the intersection geometries
+            intersectionsList = intersections.geoms if isinstance(intersections, shapely.GeometryCollection) else [intersections]
+
+            # Find the lowest intersection distance and its corresponding [x, y] coordinate
+            lIntersection = GATE_MAX_WIDTH / 2
+            xyIntersection = self.xyMidpoint
+            for intersection in intersectionsList:
+                if isinstance(intersection, shapely.Point):
+                    # This intersection is a point, get its coordinates as an array, then calculate the distance to the intersection
+                    xy = np.array([intersection.x, intersection.y])
+                    l = np.linalg.norm(self.xyMidpoint - xy)
+
+                else:
+                    # This intersection is a line, get the coordinates defining the intersection line as a 2D array in the form [[x1, y1], [x2, y2]]
+                    xyLine = np.array([intersection.xy[0], intersection.xy[1]]).T
+
+                    # Check if the gate midpoint is contained in the intersection line
+                    if xyLine[0][0] <= self.xyMidpoint[0] <= xyLine[1][0] and xyLine[0][1] <= self.xyMidpoint[1] <= xyLine[1][1]:
+                        # Gate midpoint contained within the intersection line, meaning the reduced coordinate array passes through the gate midpoint
+                        xy = self.xyMidpoint
+                        l = 0
+                    else:
+                        # Gate midpoint not contained within the intersection line, find the shorter distance to the intersection line and its
+                        # coordinate
+                        lIntersections = np.linalg.norm(self.xyMidpoint - xyLine, ord=1, axis=1)
+                        if lIntersections[0] < lIntersections[1]:
+                            xy = xyLine[0]
+                            l = lIntersections[0]
+                        else:
+                            xy = xyLine[1]
+                            l = lIntersections[1]
+
+                # Update the lowest intersection distance and its corresponding [x, y] coordinate
+                if l < lIntersection:
+                    lIntersection = l
+                    xyIntersection = xy
+
+            # Find the distance along the coordinate array of the closest intersection
+            sIntersection = reducedCoordArray.sCoords[0] + lineCoordArray.project(shapely.Point(xyIntersection))
+
+        # Update the relevant lLimitXY attribute
+        if key == 'limitLeftSoft':
+            self.lLimitLeftSoft = lIntersection
+        elif key == 'limitRightSoft':
+            self.lLimitRightSoft = lIntersection
+        elif key == 'limitLeftHard':
+            self.lLimitLeftHard = lIntersection
+        elif key == 'limitRightHard':
+            self.lLimitRightHard = lIntersection
+
+        return lIntersection, sIntersection
+
 
     def updateWidths(self,
                      lLeft: float,
@@ -520,6 +688,9 @@ class Track:
     def __initFromTrackGen(self,
                            trackPath: str,
                            BClosedTrackOverride: bool | None) -> None:
+        """
+        TODO: Docstring
+        """
         ...
         def __initGateFromCoords(xyLeft: NDArrayFloat1D,
                                  xyRight: NDArrayFloat1D,

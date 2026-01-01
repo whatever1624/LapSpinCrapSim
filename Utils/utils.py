@@ -147,8 +147,7 @@ def linearInterpExtrap(x: float,
         xp = xp[-2:]
         fp = fp[-2:]
     else:
-        # Point x is not within the first pair or last pair of data points,
-        # fallback to NumPy interp()
+        # Point x is not within the first pair or last pair of data points, fallback to NumPy interp()
         return np.interp(x, xp, fp)
 
     # Calculate the linear extrapolation
@@ -177,6 +176,7 @@ def resample(signal: list[float] | NDArrayFloat1D,
         Tuple of (signalResampled, tsResampled).
 
         signalResampled: Resampled signal.
+
         tsResampled: New temporal or spatial base of the resampled signal.
     """
     # Create the new base of the resampled signal, only in the interpolating region
