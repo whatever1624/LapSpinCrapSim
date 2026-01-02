@@ -73,7 +73,7 @@ class CoordinateArray:
     and track mesh.
 
     Has methods:
-        - getReducedCoordArray()
+        - getReducedCoordArray(sRef, sLower, sUpper, ALower, AUpper)
 
     Attributes:
         xyzCoords: Coordinates in order of increasing distance along the
@@ -460,7 +460,9 @@ class Gate:
     track limits used to validate generated trajectories.
 
     Has methods:
-        - TODO: Fill this in
+        - calcIntersection(reducedCoordArray, key)
+        - updateWidths(lLeft, lRight)
+        - recalcMidpoint()
 
     Attributes:
         line: Straight line from the left coordinate to the right coordinate, in
@@ -532,16 +534,28 @@ class Gate:
         self.lLimitLeftHard = lLimitLeftHard
         self.lLimitRightHard = lLimitRightHard
 
+        # Create the gate line
+        self.line = self.__createGateLine()
+
+    def __createGateLine(self) -> shapely.LineString:
+        """
+        Internal method to create the gate Shapely LineString object from the
+        gate attributes.
+
+        Returns:
+            Shapely LineString representing the gate, which is a straight line
+            from the left to the right coordinate.
+        """
         # Calculate the vectors to the left and right coordinates of the gate, relative to xyMidpoint
-        xyVecLeft = utils.rotateVectorHeading(np.array([-lLeft, 0]), AHeading)
-        xyVecRight = utils.rotateVectorHeading(np.array([lRight, 0]), AHeading)
+        xyVecLeft = utils.rotateVectorHeading(np.array([-self.lLeft, 0]), self.AHeading)
+        xyVecRight = utils.rotateVectorHeading(np.array([self.lRight, 0]), self.AHeading)
 
         # Calculate the left and right coordinates of the gate
-        xyLeft = xyMidpoint + xyVecLeft
-        xyRight = xyMidpoint + xyVecRight
+        xyLeft = self.xyMidpoint + xyVecLeft
+        xyRight = self.xyMidpoint + xyVecRight
 
         # Generate the gate line
-        self.line = shapely.LineString([xyLeft, xyRight])
+        return shapely.LineString([xyLeft, xyRight])
 
     def calcIntersection(self,
                          reducedCoordArray: CoordinateArray,
@@ -649,15 +663,56 @@ class Gate:
                      lLeft: float,
                      lRight: float) -> None:
         """
-        TODO: Function docstring
+        Updates the gate width attributes, then updates the gate line from those
+        new width attributes.
+
+        Args:
+            lLeft: Width of the gate to the left of xyMidpoint.
+            lRight: Width of the gate to the right of xyMidpoint.
         """
-        ...
+        # Update attributes
+        self.lLeft = lLeft
+        self.lRight = lRight
+
+        # Create the new gate line using the updated attributes
+        self.line = self.__createGateLine()
 
     def recalcMidpoint(self) -> None:
         """
-        TODO: Function docstring
+        Recalculates and moves the gate midpoint to the true midpoint between
+        the left and right soft track limits.
+
+        The resulting distances to the left and right soft track limits will be
+        equal. Also updates all the gate attributes with the new values (if they
+        exist).
+
+        Raises:
+            ValueError: Cannot recalculate gate midpoint: lLimitLeftSoft and/or
+                lLimitRightSoft is None
         """
-        ...
+        # Check that lLimitLeftSoft and lLimitRightSoft both exist
+        if self.lLimitLeftSoft is None or self.lLimitRightSoft is None:
+            raise ValueError("Cannot recalculate gate midpoint: lLimitLeftSoft and/or lLimitRightSoft is None")
+
+        # Calculate the distance to the right to shift the midpoint
+        lShiftRight = self.lLimitRightSoft - self.lLimitLeftSoft
+
+        # Calculate the shifted gate midpoint and update the attribute
+        xyVec = utils.rotateVectorHeading(np.array([lShiftRight, 0]), self.AHeading)
+        self.xyMidpoint += xyVec
+
+        # Update the width and distance to limit attributes with the shifted midpoint
+        self.lLeft += lShiftRight
+        self.lRight -= lShiftRight
+        self.lLimitLeftSoft += lShiftRight
+        self.lLimitRightSoft -= lShiftRight
+        if self.lLimitLeftHard is not None:
+            self.lLimitLeftHard += lShiftRight
+        if self.lLimitRightHard is not None:
+            self.lLimitRightHard -= lShiftRight
+
+        # Create the new gate line using the updated attributes
+        self.line = self.__createGateLine()
 
 
 class Track:
