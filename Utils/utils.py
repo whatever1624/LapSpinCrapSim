@@ -118,8 +118,8 @@ def filt(signal: list[float] | NDArrayFloat1D,
 
 
 def linearInterpExtrap(x: float,
-                       xp: NDArrayNumber1D,
-                       fp: NDArrayNumber1D) -> float:
+                       xp: list[float] | NDArrayNumber1D,
+                       fp: list[float] | NDArrayNumber1D) -> float:
     """
     Linearly interpolate or extrapolate at the point x from the closest 2 data
     points defined by xp, fp.
