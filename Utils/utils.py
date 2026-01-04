@@ -264,12 +264,9 @@ def rotateVectorHeading(xy_xyz: NDArrayFloat1D,
     return xy_xyzRotated
 
 
-# -------------------------------------------------- NOT USED YET -------------------------------------------------- #
-
-
-def sideOfLine(xy_xyzPoint: NDArrayFloat2D,
-               xy_xyzLineStart: NDArrayFloat1D,
-               xy_xyzLineEnd: NDArrayFloat1D) -> float:
+def getSideOfLine(xy_xyzPoint: NDArrayFloat1D,
+                  xy_xyzLineStart: NDArrayFloat1D,
+                  xy_xyzLineEnd: NDArrayFloat1D) -> float:
     """
     Returns a positive number if the point is on the left of the line, or a
     negative number if the point is on the right of the line, where "left" and

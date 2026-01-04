@@ -69,6 +69,9 @@ TRACK_PLOT_AREA = 100                           # Area of the track plot saved a
 
 TRACK_PLOT_SPATIAL_RESOLUTION = 5               # Spatial resolution of the saved track plot (in pixels/m)
 
+# Track normal vector constants
+PERTURB_DISTANCE = 1e-3                         # Distance to perturb when forward-differencing to calculate the track normal vector
+
 
 class CoordinateArray:
     """
@@ -831,7 +834,6 @@ class Track:
                 the maximum distance from the start to finish coordinates of the
                 track limit coordinate arrays.
         """
-        ...
         def __getGateFromCoords(xyLeft: NDArrayFloat1D,
                                 xyRight: NDArrayFloat1D,
                                 event: Event | None = None,
@@ -969,7 +971,7 @@ class Track:
             return objFunc
 
 
-        def __saveTrackPlot(coordArraysDict: dict[str, Any],
+        def __saveTrackPlot(coordArraysDict: dict[str, CoordinateArray],
                             gates: list[Gate] | np.ndarray[tuple[int], np.dtype[np.object_]],
                             indsBadGates: list[int] | None = None) -> None:
             """
@@ -1141,10 +1143,13 @@ class Track:
             # Find the event gates contained in the track segment from the previous gate to this candidate gate
             xyLinePrevToCandidateMidpoint = shapely.LineString([prevGate.xyMidpoint, candidateGate.xyMidpoint])
             AHeadingAvg = (prevGate.AHeading + candidateGate.AHeading) / 2
-            eventGatesFlat = [gate for gate in eventGatesList for eventGatesList in eventGatesDict.values()]
+            eventGatesFlat = []
+            for eventGatesList in eventGatesDict.values():
+                for eventGate in eventGatesList:
+                    eventGatesFlat.append(eventGate)
             eventGatesContained: list[Gate] = []
             sEventGatesContained: list[dict[str, float]] = []
-            for eventGate in eventGatesFlat.copy():
+            for eventGate in eventGatesFlat:
                 # Calculate the heading angle difference compared to the average heading angle of the previous and candidate gates
                 AHeadingDiff = utils.wrap(eventGate.AHeading - AHeadingAvg, -np.pi, np.pi)
 
@@ -1353,12 +1358,14 @@ class Track:
             xyzGatesRight[i][2] = utils.linearInterpExtrap(gate.lRight, xp, fp)
 
         # Find unused keys in coordArraysDict
-        keysDict = coordArraysDict.keys()
-        BValidKeys = False
-        while not BValidKeys:
-            keyGateLeft = ''.join([str(n) for n in np.random.randint(0, 9, 7)])
-            keyGateRight = ''.join([str(n) for n in np.random.randint(0, 9, 7)])
-            BValidKeys = keyGateLeft not in keysDict and keyGateRight not in keysDict
+        keyGateLeft = 0
+        while str(keyGateLeft) not in coordArraysDict.keys():
+            keyGateLeft += 1
+        keyGateLeft = str(keyGateLeft)
+        keyGateRight = 1
+        while str(keyGateRight) not in coordArraysDict.keys():
+            keyGateRight += 1
+        keyGateRight = str(keyGateRight)
 
         # Create CoordinateArray objects from the extrapolated gate left and right coordinates, and add them to coordinateArraysDict - note that the
         # heading angles of these coordinate arrays does not matter
@@ -1366,11 +1373,13 @@ class Track:
         coordArraysDict[keyGateRight] = CoordinateArray(xyzGatesRight, self.BClosedTrack, False)
 
         # Create the track mesh, which is an array Scipy multivariate interpolators local to the area around their index's gate
-        self.mesh = np.empty(nGates, dtype=scipy.interpolate.LinearNDInterpolator)
+        self.mesh = np.empty(nGates)
+        self.__indsPrevNext = np.empty((nGates, 2))  # Internal attribute storing [iPrev, iNext] for each gate (indexes of the previous and next gates
+                                                     # with different midpoints to the current gate), to avoid re-calculation in calcTrackZ()
         for i, gate in enumerate(self.gates):
             # Create an array that will contain all the [x, y, z] coordinates local to the area around the gate
-            xyzCoords = np.array([coordArraysDict[keyGateLeft][i],
-                                  coordArraysDict[keyGateRight][i]])
+            xyzCoords = np.array([coordArraysDict[keyGateLeft].xyzCoords[i],
+                                  coordArraysDict[keyGateRight].xyzCoords[i]])
 
             # Find the indexes corresponding to the previous and next gate with a different midpoint to the current gate, and add all the left and
             # right [x, y, y] coordinates of the gates contained between them (inclusive)
@@ -1382,7 +1391,7 @@ class Track:
                     break
                 else:
                     iPrev -= 1
-                    xyzCoords = np.vstack((xyzCoords, coordArraysDict[keyGateLeft][iPrev], coordArraysDict[keyGateRight][iPrev]))
+                    xyzCoords = np.vstack((xyzCoords, coordArraysDict[keyGateLeft].xyzCoords[iPrev], coordArraysDict[keyGateRight].xyzCoords[iPrev]))
                 if self.gates[iPrev].xyMidpoint != gate.xyMidpoint:
                     BFoundPrev = True
             iNext = i
@@ -1393,9 +1402,10 @@ class Track:
                     break
                 else:
                     iNext += 1
-                    xyzCoords = np.vstack((xyzCoords, coordArraysDict[keyGateLeft][iNext], coordArraysDict[keyGateRight][iNext]))
+                    xyzCoords = np.vstack((xyzCoords, coordArraysDict[keyGateLeft].xyzCoords[iNext], coordArraysDict[keyGateRight].xyzCoords[iNext]))
                 if self.gates[iNext].xyMidpoint != gate.xyMidpoint:
                     BFoundNext = True
+            self.__indsPrevNext[i] = np.array([iPrev, iNext])
 
             # Get the [x, y, z] coordinates of all the reduced coordinate arrays (reduced to be between the previous and next gates)
             for key, coordArray in coordArraysDict.items():
@@ -1413,19 +1423,135 @@ class Track:
             pkl.dump(self, pklFile, protocol=pkl.HIGHEST_PROTOCOL)
         __saveTrackPlot(coordArraysDict, self.gates)
 
-    def calcTrackZ(self,
+    def getTrackZ(self,
                    xy: list[float] | NDArrayFloat1D,
                    indGate: int,
                    BReturnNaN: bool = False) -> float:
         """
-        TODO: Function docstring
-        """
-        ...
+        Calculates the z coordinate of the track at the specified [x, y]
+        coordinate using the track mesh (local z coordinate interpolators).
 
-    def calcTrackNormal(self,
+        Chooses the closest interpolator such that the [x, y] coordinate is
+        within the half-step backwards/forwards to the previous/next gate. If
+        the [x, y] coordinate is outside the interpolation region, will return 0
+        or NaN, depending on the argument BReturnNaN.
+
+        Args:
+            xy: Coordinate to calculate the z coordinate of the track at, in the
+                2D plane [x, y].
+            indGate: Index of the closest/most recent gate. This determines
+                which local track region the xy coordinate is in.
+            BReturnNaN: Whether to return NaN if the xy coordinate is outside
+                the interpolation region, or to sanitise it and return 0.
+
+        Returns:
+            z coordinate at the specified [x, y] coordinate.
+        """
+        # Store previous and next gate indexes for easier access
+        indGatePrev = self.__indsPrevNext[indGate][0]
+        indGateNext = self.__indsPrevNext[indGate][1]
+
+        # Calculate the midpoints and left-right direction vectors of the virtual gates at the half-step between the gate and the previous/next gate
+        xyLineHalfStepPrev = (((self.gates[indGate].xyMidpoint + self.gates[indGatePrev].xyMidpoint) / 2)
+                              + utils.rotateVectorHeading(np.array([0, 1]),
+                                                          (self.gates[indGate].AHeading + self.gates[indGatePrev].AHeading + np.pi) / 2))
+        xyLineHalfStepNext = (((self.gates[indGate].xyMidpoint + self.gates[indGateNext].xyMidpoint) / 2)
+                              + utils.rotateVectorHeading(np.array([0, 1]),
+                                                          (self.gates[indGate].AHeading + self.gates[indGateNext].AHeading + np.pi) / 2))
+
+        # Check if the gate index specified is correct for the specified coordinate
+        if utils.getSideOfLine(xy, xyLineHalfStepPrev[0], xyLineHalfStepPrev[1]) > 0:
+            # Specified coordinate is behind the virtual gate at the half-step between the gate and the previous gate
+            z = self.getTrackZ(xy, indGatePrev, BReturnNaN)
+        elif utils.getSideOfLine(xy, xyLineHalfStepNext[0], xyLineHalfStepNext[1]) < 0:
+            # Specified coordinate is ahead of the virtual gate at the half-step between the gate and the next gate
+            z = self.getTrackZ(xy, indGateNext, BReturnNaN)
+        else:
+            # Index is correct for the specified coordinate
+            z = self.mesh[indGate](xy[0], xy[1])
+
+        # Sanitise the z coordinate
+        if np.isnan(z) and not BReturnNaN:
+            z = 0
+
+        return z
+
+    def getTrackNormal(self,
                         xy_xyz: list[float] | NDArrayFloat1D,
                         indGate: int) -> NDArrayFloat1D:
         """
-        TODO: Function docstring
+        Calculates the normal vector to the track at the specified [x, y] or
+        [x, y, z] coordinate from forward differencing of the z coordinate.
+
+        If xy_xyz is in the form [x, y, z], then the z coordinate will be used
+        as the unperturbed track z coordinate (i.e. skipping the calculation).
+
+        Note that forward differencing is used as the SciPy multivariate
+        interpolators don't seem to return their gradients. If the forward
+        differencing in any direction gets a NaN z coordinate, will use
+        backwards differencing for that direction.
+
+        Args:
+            xy_xyz: Coordinate to calculate the track normal vector at, in the
+                form [x, y] or [x, y, z].
+            indGate: Index of the closest/most recent gate. This determines
+                which local track region the xy coordinate is in.
+
+        Returns:
+            Upwards-facing normal vector to the track at the specified
+            coordinate, scaled to a magnitude of 1. If the specified coordinate
+            is outside the interpolation region of the track mesh, returns the
+            normal pointing directly upwards [0, 0, 1].
         """
-        ...
+        direction = 1
+
+        # Get unperturbed [x, y] and z coordinates
+        if len(xy_xyz) < 3:
+            xy = np.array(xy_xyz)
+            z = self.getTrackZ(xy_xyz, indGate, True)
+        else:
+            xy = np.array(xy_xyz[0:2])
+            z = xy_xyz[2]
+
+        # Check that unperturbed z coordinate is within the interpolation region of the track mesh
+        if not np.isnan(z):
+            xyz = np.append(xy_xyz, z)
+        else:
+            # Unperturbed z coordinate is outside the interpolation region of the track mesh, return failed track normal
+            return np.array([0, 0, 1])
+
+        # Calculate coordinate perturbed in the x direction
+        xyPerturbX = xy + np.array([PERTURB_DISTANCE, 0])
+        zPerturbX = self.getTrackZ(xyPerturbX, indGate, True)
+        if np.isnan(zPerturbX):
+            # Forward-perturbed coordinate in the x direction is outside the interpolation region of the track mesh, try backwards-perturb
+            direction *= -1
+            xyPerturbX = xy - np.array([PERTURB_DISTANCE, 0])
+            zPerturbX = self.getTrackZ(xyPerturbX, indGate, True)
+            if np.isnan(zPerturbX):
+                # Backwards-perturbed coordinate in the x direction is also outside the interpolation region, return failed track normal
+                return np.array([0, 0, 1])
+        xyzPerturbX = np.append(xyPerturbX, zPerturbX)
+
+        # Calculate coordinate perturbed in the y direction
+        xyPerturbY = xy + np.array([0, PERTURB_DISTANCE])
+        zPerturbY = self.getTrackZ(xyPerturbY, indGate, True)
+        if np.isnan(zPerturbX):
+            # Forward-perturbed coordinate in the y direction is outside the interpolation region of the track mesh, try backwards-perturb
+            direction *= -1
+            xyPerturbY = xy - np.array([0, PERTURB_DISTANCE])
+            zPerturbY = self.getTrackZ(xyPerturbY, indGate, True)
+            if np.isnan(zPerturbY):
+                # Backwards-perturbed coordinate in the y direction is also outside the interpolation region, return failed track normal
+                return np.array([0, 0, 1])
+        xyzPerturbY = np.append(xyPerturbY, zPerturbY)
+
+        # Calculate the vectors to the perturbed coordinates
+        xyzVecX = xyzPerturbX - xyz
+        xyzVecY = xyzPerturbY - xyz
+
+        # Calculate the track normal as the (scaled) cross product of the vectors to the 2 perturbed coordinates
+        xyzTrackNormal = np.cross(xyzVecY, xyzVecX)
+        xyzTrackNormal /= np.linalg.norm(xyzTrackNormal) * direction
+
+        return xyzTrackNormal
