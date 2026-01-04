@@ -17,6 +17,7 @@ from dataclasses import dataclass
 import scipy
 import shapely
 import numpy as np
+import matplotlib.pyplot as plt
 
 # Project python modules
 from Utils.typeAliases import Any, ListFloat2D, NDArrayFloat1D, NDArrayFloat2D, NDArrayInt1D, NDArrayNumber1D
@@ -24,6 +25,7 @@ import Utils.utils as utils
 
 # Filename constants
 TRACK_PKL_FILENAME = "Track.pkl"
+TRACK_PLOT_FILENAME = "TrackPlot.png"
 LIMIT_LEFT_SOFT_FILENAME = "xyzLimitLeftSoft.csv"
 LIMIT_RIGHT_SOFT_FILENAME = "xyzLimitRightSoft.csv"
 LIMIT_LEFT_HARD_FILENAME = "xyzLimitLeftHard.csv"
@@ -786,7 +788,37 @@ class Track:
         file in the specified folder, or if that fails, by generating the track
         from the .csv and .json files in that folder.
 
-        TODO: Required file structure in trackPath
+        Files that will be parsed to CoordinateArray objects must:
+            - Be a .csv file in the format where each row is a coordinate in
+                the form x,y,z.
+            - Be named:
+                - As one of the track limits 'xyzLimitLeftSoft.csv',
+                    'xyzLimitRightSoft.csv', 'xyzLimitLeftHard.csv', or
+                    'xyzLimitRightHard.csv'.
+                - Starting with the prefix 'xyzExtra'.
+
+        The trackPath folder must contain:
+            - xyzLimitLeftSoft.csv and/or xyzLimitLeftHard.csv.
+            - xyzLimitRightSoft.csv and/or xyzLimitRightHard.csv.
+
+        Files that will be parsed to event Gate objects must:
+            - Be a .json file with the prefix 'eventData'.
+            - Contain the keys:
+                - type: String identifying the event type
+                - xyStartLeft: Left coordinate of the event start gate, as a
+                    list of floats in the form [xStartLeft, yStartLeft]. May be
+                    omitted if the event type is 'StartFinish'.
+                - xyStartRight: Right coordinate of the event start gate, as a
+                    list of floats in the form [xStartRight, yStartRight]. May
+                    be omitted if the event type is 'StartFinish'.
+                - xyFinishLeft: Left coordinate of the event finish gate, as a
+                    list of floats in the form [xFinishLeft, yFinishLeft]. May
+                    be omitted if the event type is 'StartFinish'.
+                - xyFinishRight: Right coordinate of the event finish gate, as a
+                    list of floats in the form [xFinishRight, yFinishRight].
+                    May be omitted if the event type is 'StartFinish'.
+                - properties: Dictionary of properties for the event, only
+                    required if the event requires properties to be defined.
 
         Args:
             trackPath: File path to the folder containing the .csv and .json
@@ -894,7 +926,21 @@ class Track:
 
         def __parseTrackFiles() -> tuple[dict[str, CoordinateArray], dict[str, list[Gate]]]:
             """
-            TODO: Function docstring
+            Internal function to parse the files in the trackPath folder into
+            CoordinateArray and Gate objects.
+
+            See the docstring for the Track object __init__() method for the
+            required file structure within the trackPath folder.
+
+            Returns:
+                Tuple of (coordArraysDict, eventGatesDict):
+
+                    coordArraysDict: Dictionary containing the CoordinateArray
+                        objects for all left/right soft/hard track limits, and
+                        any extra coordinate arrays provided.
+
+                    eventGatesDict: Dictionary containing lists of event Gate
+                        objects of each event type.
             """
             limitFileNames = ('xyzLimitLeftSoft.csv', 'xyzLimitRightSoft.csv', 'xyzLimitLeftHard.csv', 'xyzLimitRightHard.csv')
             extraCoordsFileNamePrefix = 'xyzExtra'
@@ -1144,9 +1190,104 @@ class Track:
                             gates: list[Gate] | np.ndarray[tuple[int], np.dtype[np.object_]],
                             indsBadGates: list[int] | None = None) -> None:
             """
-            TODO: Function docstring
+            Internal function to save a plot of the generated track to the
+            trackPath folder, primarily for debugging.
+
+            Args:
+                coordArraysDict: Dictionary containing the CoordinateArray
+                    objects for all left/right soft/hard track limits, and any
+                    extra coordinate arrays provided.
+                gates: List or array of Gate objects to be plotted.
+                indsBadGates: List of indexes corresponding to bad gates, which
+                    will be plotted as dotted lines.
+
+            TODO: Try to find a way to also show the track elevation in this
+                plot, probably using contours - but this will need to be
+                calculated around each gate
             """
-            ...
+            # Calculate the limits of the plot (limits of the coordinate arrays, plus 1.5 times GATE_EXTEND_WIDTH
+            lMargin = 1.5 * GATE_EXTEND_WIDTH
+            xMin = min([min(coordArray.xyzCoords[:, 0]) for coordArray in coordArraysDict.values()]) - lMargin
+            xMax = max([max(coordArray.xyzCoords[:, 0]) for coordArray in coordArraysDict.values()]) + lMargin
+            yMin = min([min(coordArray.xyzCoords[:, 1]) for coordArray in coordArraysDict.values()]) - lMargin
+            yMax = max([max(coordArray.xyzCoords[:, 1]) for coordArray in coordArraysDict.values()]) + lMargin
+
+            # Create the figure with width and height to match the aspect ratio of (xMax - xMin):(yMax - yMin) with total area TRACK_PLOT_AREA
+            area = (xMax - xMin) * (yMax - yMin)
+            width = (xMax - xMin) / area * TRACK_PLOT_AREA
+            height = (yMax - yMin) / area * TRACK_PLOT_AREA
+            fig, ax = plt.subplots(1, 1, layout='constrained', figsize=(width, height))
+
+            # Set axis limits, make the axis scales equal, add the legend
+            ax.set_xlim((xMin, xMax))
+            ax.set_ylim((yMin, yMax))
+            ax.axis('equal')
+            ax.legend()
+
+            # Plot the coordinate arrays - red/green and bright/dark for left/right soft/hard track limits, or grey if it's an extra coordinate array
+            cDict = {'limitLeftSoft': (1, 0, 0),
+                     'limitRightSoft': (0, 1, 0),
+                     'limitLeftHard': (0.5, 0, 0),
+                     'limitRightHard': (0, 0.5, 0)}
+            for key, coordArray in coordArraysDict.items():
+                ax.plot(coordArray.xyzCoords[:, 0], coordArray.xyzCoords[:, 1], c=cDict.get(key, 0.5), label=key)
+
+            # Plot the track gates, also in this loop calculate the [x, y] coordinates of the gate's intersections with the track limits
+            #  - Colours: black if no event, green if start gate, red if finish gate
+            #  - Line style: Dashed if it is a bad gate, solid otherwise
+            #  - Annotation: Index of the gate, name and whether it's the start/finish if it's an event gate
+            xyIntersectionsDict = {'limitLeftSoft': np.empty((len(gates), 2)),
+                                   'limitRightSoft': np.empty((len(gates), 2)),
+                                   'limitLeftHard': np.empty((len(gates), 2)),
+                                   'limitRightHard': np.empty((len(gates), 2))}
+            for i, gate in enumerate(gates):
+                # Plot the track gate
+                c = 0
+                text = str(i)
+                if gate.event is not None:
+                    text += " " + gate.event.name + (" (Start)" if gate.event.BStart else " (Finish)")
+                    if gate.event.type == 'StartFinish':
+                        if gate.event.BStart:
+                            c = (0, 1, 0)
+                            text += " Start"
+                        else:
+                            c = (1, 0, 0)
+                            text += " Finish"
+                ls = '--' if i in indsBadGates else '-'
+                ax.plot(gate.xyLine.xy[0], gate.xyLine.xy[1], c=c, ls=ls)
+                ax.annotate(text, (gate.xyMidpoint[0], gate.xyMidpoint[1]))
+
+                # Calculate the [x, y] coordinates of the gate's intersections with the track limits coordinate arrays
+                xyVecLeft = utils.rotateVectorHeading(np.array([-1, 0]), gate.AHeading)
+                xyVecRight = utils.rotateVectorHeading(np.array([1, 0]), gate.AHeading)
+                xyIntersectionsDict['limitLeftSoft'][i] = gate.xyMidpoint + (xyVecLeft * gate.lLimitLeftSoft)
+                xyIntersectionsDict['limitRightSoft'][i] = gate.xyMidpoint + (xyVecRight * gate.lLimitRightSoft)
+                xyIntersectionsDict['limitLeftHard'][i] = gate.xyMidpoint + (xyVecLeft * gate.lLimitLeftHard)
+                xyIntersectionsDict['limitRightHard'][i] = gate.xyMidpoint + (xyVecRight * gate.lLimitRightHard)
+
+            # Plot the track gate intersections with the track limit coordinate arrays
+            keyList = ['limitLeftSoft', 'limitRightSoft', 'limitLeftHard', 'limitRightHard']
+            markerList = ['<', '>', '<', '>']
+            fillList = ['none', 'none', 'full', 'full']
+            for i, key in enumerate(keyList):
+                xy = xyIntersectionsDict[key]
+                ax.plot(xy[:, 0], xy[:, 1], c=cDict[key], fillstyle=fillList[i], ls='', marker=markerList[i])
+
+            # Add text to explain the notation
+            ax.text((xMin + xMax) / 2,
+                    (yMin + yMax) / 2,
+                    "Track limit coordinates are coloured with red/green for left/right, light/dark for soft/hard\n"
+                    "Extra coordinate arrays used for increased track mesh resolution are coloured grey\n"
+                    "Track gates are coloured by event type, with markers at their calculated intersections with the track limits\n"
+                    "Track gates causing an exception to be raised during track generation are shown with dotted lines")
+
+            # Calculate the dpi required
+            bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+            axWidth, axHeight = bbox.width, bbox.height
+            dpi = TRACK_PLOT_SPATIAL_RESOLUTION * (((xMax - xMin) / axWidth) + ((yMax - yMin) / axHeight))
+
+            # Save the track plot
+            fig.savefig(os.path.join(trackPath, TRACK_PLOT_FILENAME), dpi=dpi)
 
         ## Parse track files to dictionaries ##
         # Attribute BClosedTrack is also set in the function __parseTrackFiles()
@@ -1705,12 +1846,8 @@ class Track:
                 return np.array([0, 0, 1])
         xyzPerturbY = np.append(xyPerturbY, zPerturbY)
 
-        # Calculate the vectors to the perturbed coordinates
-        xyzVecX = xyzPerturbX - xyz
-        xyzVecY = xyzPerturbY - xyz
-
-        # Calculate the track normal as the (scaled) cross product of the vectors to the 2 perturbed coordinates
-        xyzTrackNormal = np.cross(xyzVecY, xyzVecX)
+        # Calculate the track normal as the (scaled) cross product of the vectors from the coordinate to the 2 perturbed coordinates
+        xyzTrackNormal = np.cross(xyzPerturbY - xyz, xyzPerturbX - xyz)
         xyzTrackNormal /= np.linalg.norm(xyzTrackNormal) * direction
 
         return xyzTrackNormal
