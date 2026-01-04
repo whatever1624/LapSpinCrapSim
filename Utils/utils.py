@@ -241,7 +241,7 @@ def removeConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, ...], np.
 def rotateVectorHeading(xy_xyz: NDArrayFloat1D,
                         theta: float) -> NDArrayFloat1D:
     """
-    Rotates the vector anti-clockwise in the 2D plane [x, y] by theta radians.
+    Rotates the vector clockwise in the 2D plane [x, y] by theta radians.
 
     Supports both [x, y] and [x, y, z] coordinates as inputs - but does not
     change the z component of the vector even if provided.
@@ -249,8 +249,8 @@ def rotateVectorHeading(xy_xyz: NDArrayFloat1D,
     Args:
         xy_xyz: NumPy array in the form [x, y] or [x, y, z] representing the
             2D vector.
-        theta: Angle in radians to rotate the vector, anti-clockwise on the 2D
-            [x, y] plane.
+        theta: Angle in radians to rotate the vector, clockwise on the 2D plane
+            [x, y].
 
     Returns:
         NumPy array representing the rotated vector, in the form [x*, y*] (if
@@ -259,8 +259,8 @@ def rotateVectorHeading(xy_xyz: NDArrayFloat1D,
     c = np.cos(theta)
     s = np.sin(theta)
     xy_xyzRotated = np.empty(2)
-    xy_xyzRotated[0] = (c * xy_xyz[0]) - (s * xy_xyz[1])
-    xy_xyzRotated[1] = (s * xy_xyz[0]) + (c * xy_xyz[1])
+    xy_xyzRotated[0] = (c * xy_xyz[0]) + (s * xy_xyz[1])
+    xy_xyzRotated[1] = -(s * xy_xyz[0]) + (c * xy_xyz[1])
     return xy_xyzRotated
 
 

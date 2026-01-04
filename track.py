@@ -7,6 +7,8 @@ classes used to generate and define the track.
 """
 # Python standard libraries
 import os
+import csv
+import json
 import pickle as pkl
 from typing import Literal
 from dataclasses import dataclass
@@ -81,6 +83,7 @@ class CoordinateArray:
     and track mesh.
 
     Has methods:
+        - rotateHeading(AHeading)
         - getReducedCoordArray(sRef, sLower, sUpper, ALower, AUpper)
 
     Attributes:
@@ -103,7 +106,6 @@ class CoordinateArray:
     def __init__(self,
                  xyzCoords: NDArrayFloat2D,
                  BClosedTrack: bool,
-                 BAllowNegativeInitAHeading: bool,
                  sCoords: NDArrayFloat1D | None = None,
                  AHeadings: NDArrayFloat1D | None = None,
                  AHeadingsFilt: NDArrayFloat1D | None = None) -> None:
@@ -116,15 +118,16 @@ class CoordinateArray:
         unwrapped heading angle along the coordinates. If all attributes are
         provided, uses those (without doing any validation).
 
+        Note that the initial unfiltered heading angle will be between 0 and 2
+        pi. This should be checked and corrected if necessary with the method
+        rotateHeadings().
+
         Args:
             xyzCoords: Array of coordinates in order of increasing distance
                 along the track, where each coordinate is in the form [x, y, z].
             BClosedTrack: Whether the coordinate array should be treated as
                 closed. A closed coordinate array means that the last coordinate
                 is equal to the first coordinate.
-            BAllowNegativeInitAHeading: Whether to offset the initial heading
-                angle (both raw and unfiltered) by 2 pi to ensure that the
-                initial filtered heading angle is between -pi and pi.
             sCoords: If all of sCoords, AHeadings and AHeadingsFilt are
                 provided, overrides the automatically calculated attribute
                 sCoords.
@@ -175,11 +178,19 @@ class CoordinateArray:
             AHeadingsFiltResampled = utils.filt(AHeadingsResampled, RESAMPLE_SPATIAL_FREQ, 'low', LP_FILT_SPATIAL_FREQ, LP_FILT_ORDER)
             self.AHeadingsFilt = np.interp(self.sCoords, sCoordsResampled, AHeadingsFiltResampled)
 
-            # If BAllowNegativeInitHeading, offset AHeading and AHeadingFilt by 2 pi if necessary such that
-            # the initial AHeadingFilt is in the range from -pi to pi
-            if BAllowNegativeInitAHeading and self.AHeadingsFilt[0] > np.pi:
-                self.AHeadings -= np.pi
-                self.AHeadingsFilt -= np.pi
+    def rotateHeadings(self,
+                       theta: float) -> None:
+        """
+        Offsets the attributes AHeadings and AHeadingsFilt by theta.
+
+        Should be used to correct the calculated heading angle attributes to
+        ensure that all CoordinateArray objects are in the same rotation.
+
+        Args:
+            theta: Heading angle in radians to offset the attributes.
+        """
+        self.AHeadings += theta
+        self.AHeadingsFilt += theta
 
     def getReducedCoordArray(self,
                              sRef: float,
@@ -814,7 +825,14 @@ class Track:
         Args:
             trackPath: File path to the folder containing the track .pkl file.
         """
-        ...
+        # Load the .pkl file
+        with open(os.path.join(trackPath, TRACK_PKL_FILENAME), 'rb') as pklFile:
+            trackPkl = pkl.load(pklFile)
+
+        # Set all attributes from the attributes in the .pkl file
+        self.gates = trackPkl.gates
+        self.mesh = trackPkl.mesh
+        self.BClosedTrack = trackPkl.BClosedTrack
 
     def __initFromTrackGen(self,
                            trackPath: str,
@@ -842,15 +860,166 @@ class Track:
                                 lLimitLeftHard: float | None = None,
                                 lLimitRightHard: float | None = None) -> Gate:
             """
-            TODO: Function docstring
+            Initialise a Gate object from its left and right coordinates.
+
+            Note that the heading angle generated may be in the wrong rotation
+            cycle from the desired heading angle. This attribute should be
+            checked and modified after the gate is returned.
+
+            Args:
+                xyLeft: Left coordinate of the gate, in the form [x, y].
+                xyRight: Right coordinate of the gate, in the form [x, y].
+                event: Information about the event starting/ending at this gate.
+                    If this is None, then this is a "regular" gate and does not
+                    define an event start or finish location.
+                lLimitLeftSoft: Unsigned distance from xyMidpoint to the
+                    intersection with the left soft track limit.
+                lLimitRightSoft: Unsigned distance from xyMidpoint to the
+                    intersection with the right soft track limit.
+                lLimitLeftHard: Unsigned distance from xyMidpoint to the
+                    intersection with the left hard track limit.
+                lLimitRightHard: Unsigned distance from xyMidpoint to the
+                    intersection with the right hard track limit.
+
+            Returns:
+                Gate object.
             """
-            ...
+            # Calculate gate midpoint, heading angle and widths to the left and right coordinates from the midpoint
+            xyMidpoint = (xyLeft + xyRight) / 2
+            AHeading = utils.getHeading(xyRight - xyLeft) - (np.pi / 4)
+            lHalf = float(np.linalg.norm(xyRight - xyLeft) / 2)
+
+            # Initialise gate
+            return Gate(xyMidpoint, AHeading, event, lHalf, lHalf, lLimitLeftSoft, lLimitRightSoft, lLimitLeftHard, lLimitRightHard)
 
         def __parseTrackFiles() -> tuple[dict[str, CoordinateArray], dict[str, list[Gate]]]:
             """
             TODO: Function docstring
             """
-            ...
+            limitFileNames = ('xyzLimitLeftSoft.csv', 'xyzLimitRightSoft.csv', 'xyzLimitLeftHard.csv', 'xyzLimitRightHard.csv')
+            extraCoordsFileNamePrefix = 'xyzExtra'
+            eventGatesFileNamePrefix = 'eventData'
+            validEventTypes = list(CUSTOM_EVENT_TYPES) + ['StartFinish']
+
+            # Parse all provided track files
+            xyzCoordsDict = {}
+            eventGatesDict: dict[str, list[Gate]] = {}
+            with os.scandir(trackPath) as entries:
+                for entry in entries:
+                    if entry.name in limitFileNames or (entry.name.startswith(extraCoordsFileNamePrefix) and entry.name.endswith('.csv')):
+                        # Coordinate array .csv file, read the coordinates to the relevant key in xyzCoordArraysDict
+                        key = entry.name[3:-4] if entry.name in limitFileNames else entry.name[len(extraCoordsFileNamePrefix) - 1:-4]
+                        with open(entry, newline='') as csvFile:
+                            xyzCoordsDict[key] = np.array(csv.reader(csvFile)).astype(float)
+
+                    elif entry.name.startswith(eventGatesFileNamePrefix) and entry.name.endswith('json'):
+                        # Event data .json file, read it and initialise the event gates to append to the relevant lists in eventGatesDict
+                        with open(entry, 'r') as jsonFile:
+                            eventData = json.load(jsonFile)
+                        dataKeys = eventData.keys()
+
+                        # Parse the event type and event name, using the name 'StartFinish' if the gate type is 'StartFinish', otherwise parsing it
+                        # from the file name
+                        if 'type' in dataKeys:
+                            eventType = eventData['type']
+                            if eventType not in validEventTypes:
+                                raise ValueError(f"Event data file {entry.name} has an invalid event type {eventType}: valid event types are "
+                                                 f"{validEventTypes}")
+                            eventName = 'StartFinish' if eventType == 'StartFinish' else entry.name[len(eventGatesFileNamePrefix) - 1:-5]
+                        else:
+                            raise ValueError(f"Event data file {entry.name} does not have the key 'type' required")
+
+                        # Parse the coordinates of the event gate representing the start and finish of the event
+                        for subKey in ('Start', 'Finish'):
+                            if f'xy{subKey}Left' in dataKeys and f'xy{subKey}Right' in dataKeys:
+                                event = Event(eventName, eventType, subKey == 'Start', eventData.get('properties', {}))
+                                eventGate = __getGateFromCoords(eventData[f'xy{subKey}Left'], eventData[f'xy{subKey}Right'], event)
+                                if eventType in eventGatesDict.keys():
+                                    eventGatesDict[eventType].append(eventGate)
+                                else:
+                                    eventGatesDict[eventType] = [eventGate]
+                            elif eventType != 'StartFinish':
+                                raise ValueError(f"Event data file {entry.name} does not have the {subKey.lower()} coordinate keys 'xyStartLeft' "
+                                                 f"and/or 'xyStartRight', and event type is '{eventType}', not 'StartFinish'")
+
+            # Use fallbacks for left and right track limits coordinates if they don't exist, and automatically determine if the track is closed
+            BClosedTrack = True
+            AHeadingsFiltInitAvg = 0
+            xyzCoordsKeys = xyzCoordsDict.keys()
+            for subKey in ('Left', 'Right'):
+                # Check if fallbacks are needed
+                if f'limit{subKey}Soft' not in xyzCoordsKeys or f'limit{subKey}Hard' not in xyzCoordsKeys:
+                    # Fallbacks needed, use them
+                    if f'limit{subKey}Soft' in xyzCoordsKeys and f'limit{subKey}Hard' not in xyzCoordsKeys:
+                        xyzCoordsDict[f'limit{subKey}Hard'] = xyzCoordsDict[f'limit{subKey}Soft']
+                    elif f'limit{subKey}Soft' not in xyzCoordsKeys and f'limit{subKey}Hard' in xyzCoordsKeys:
+                        xyzCoordsDict[f'limit{subKey}Soft'] = xyzCoordsDict[f'limit{subKey}Hard']
+                    else:
+                        raise ValueError(f"{trackPath} must contain at least one of xyzLimit{subKey}Soft.csv or xyzLimit{subKey}Hard.csv")
+
+                # Determine if the track is closed, if all track limits coordinates have their start and finish coordinates within
+                # CLOSED_TRACK_THRESHOLD_DISTANCE
+                for subKey2 in ('Soft', 'Hard'):
+                    xyzCoords = xyzCoordsDict[f'limit{subKey}{subKey2}']
+                    if np.linalg.norm(xyzCoords[-1] - xyzCoords[0]) > CLOSED_TRACK_THRESHOLD_DISTANCE:
+                        BClosedTrack = False
+
+            # Set BClosedTrack attribute
+            self.BClosedTrack = BClosedTrack if BClosedTrackOverride is None else BClosedTrackOverride
+
+            # Initialise CoordinateArray objects and store them in the relevant key of coordArraysDict, also calculate the average initial filtered
+            # heading angle
+            AHeadingsFiltInitAvg = 0
+            coordArraysDict: dict[str, CoordinateArray] = {}
+            for key, xyzCoords in xyzCoordsDict.items():
+                coordArray = CoordinateArray(xyzCoords, self.BClosedTrack)
+                coordArraysDict[key] = coordArray
+                AHeadingsFiltInitAvg += coordArray.AHeadingsFilt[0]
+            AHeadingsFiltInitAvg /= len(xyzCoordsDict)
+
+            # Make sure all the coordinate arrays are in the same rotation
+            ALower = AHeadingsFiltInitAvg - np.pi
+            AUpper = AHeadingsFiltInitAvg + np.pi
+            for coordArray in coordArraysDict.values():
+                AOffset = utils.wrap(coordArray.AHeadingsFilt[0], ALower, AUpper) - coordArray.AHeadingsFilt[0]
+                coordArray.rotateHeadings(AOffset)
+
+            # Check if start and finish gates exist
+            startGate = None
+            finishGate = None
+            if 'StartFinish' in eventGatesDict.keys():
+                for eventGate in eventGatesDict['StartFinish']:
+                    if eventGate.event.BStart:
+                        startGate = eventGate
+                    else:
+                        finishGate = eventGate
+
+            # Create start and finish gates if they don't exist
+            if startGate is None:
+                startGate = __getGateFromCoords(coordArraysDict['limitLeftSoft'].xyzCoords[0],
+                                                coordArraysDict['limitRightSoft'].xyzCoords[0],
+                                                Event('StartFinish', 'StartFinish', True, {}))
+            if finishGate is None:
+                finishGate = __getGateFromCoords(coordArraysDict['limitLeftSoft'].xyzCoords[-1],
+                                                 coordArraysDict['limitRightSoft'].xyzCoords[-1],
+                                                 Event('StartFinish', 'StartFinish', False, {}))
+
+            # Make sure the 'StartFinish' key in eventGatesDict is in the right order (rewrite its value)
+            eventGatesDict['StartFinish'] = [startGate, finishGate]
+
+            # Make sure that every event type has an equal number of start and finish gates
+            for eventGatesList in eventGatesDict.values():
+                nStart = 0
+                nFinish = 0
+                for eventGate in eventGatesList:
+                    if eventGate.event.BStart:
+                        nStart += 1
+                    else:
+                        nFinish += 1
+                if nStart != nFinish:
+                    raise ValueError(f"Event type '{eventType}' has start gates but {nFinish} finish gates")
+
+            return coordArraysDict, eventGatesDict
 
         def __getGateFromParams(params: NDArrayFloat1D,
                                 prevGate: Gate) -> Gate:
@@ -980,18 +1149,8 @@ class Track:
             ...
 
         ## Parse track files to dictionaries ##
+        # Attribute BClosedTrack is also set in the function __parseTrackFiles()
         coordArraysDict, eventGatesDict = __parseTrackFiles()
-
-        ## Set BClosedTrack attribute ##
-        if BClosedTrackOverride is None:
-            # Automatically decide if the track is closed if the maximum distance from the last to first coordinate of the all the coordinate arrays
-            # provided is less than the threshold
-            self.BClosedTrack = True
-            for coordArray in coordArraysDict.values():
-                if np.linalg.norm(coordArray.xyzCoords[-1] - coordArray.xyzCoords[0]) > CLOSED_TRACK_THRESHOLD_DISTANCE:
-                    self.BClosedTrack = False
-        else:
-            self.BClosedTrack = BClosedTrackOverride
 
         ## Setup before gate creation loop ##
         # List that will contain Gate objects representing the track gates in order of the direction of travel along the track
@@ -1369,8 +1528,8 @@ class Track:
 
         # Create CoordinateArray objects from the extrapolated gate left and right coordinates, and add them to coordinateArraysDict - note that the
         # heading angles of these coordinate arrays does not matter
-        coordArraysDict[keyGateLeft] = CoordinateArray(xyzGatesLeft, self.BClosedTrack, False)
-        coordArraysDict[keyGateRight] = CoordinateArray(xyzGatesRight, self.BClosedTrack, False)
+        coordArraysDict[keyGateLeft] = CoordinateArray(xyzGatesLeft, self.BClosedTrack)
+        coordArraysDict[keyGateRight] = CoordinateArray(xyzGatesRight, self.BClosedTrack)
 
         # Create the track mesh, which is an array Scipy multivariate interpolators local to the area around their index's gate
         self.mesh = np.empty(nGates)
