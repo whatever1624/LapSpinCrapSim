@@ -20,7 +20,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Project python modules
-from Utils.typeAliases import Any, ListFloat2D, NDArrayFloat1D, NDArrayFloat2D, NDArrayInt1D, NDArrayNumber1D
+from Utils.typeAliases import Any, NDArrayFloat1D, NDArrayFloat2D, NDArrayInt1D
 import Utils.utils as utils
 
 # Filename constants
@@ -1600,29 +1600,50 @@ class Track:
                     for sIntersections in sIntersectionsDict.values():
                         del sIntersections[i]
 
+        # Set the width to the hard track limits to at least the width of the soft track limits (and add the fallbacks in case either weren't set)
+        for gate in gates:
+            # Left track limit widths
+            if gate.lLimitLeftSoft is not None and gate.lLimitLeftHard is not None:
+                gate.lLimitLeftHard = max(gate.lLimitLeftSoft, gate.lLimitLeftHard)
+            elif gate.lLimitLeftSoft is not None:
+                gate.lLimitLeftHard = gate.lLimitLeftSoft
+            elif gate.lLimitLeftHard is not None:
+                gate.lLimitLeftSoft = gate.lLimitLeftHard
+            # Right track limit widths
+            if gate.lLimitRightSoft is not None and gate.lLimitRightHard is not None:
+                gate.lLimitRightHard = max(gate.lLimitRightSoft, gate.lLimitRightHard)
+            elif gate.lLimitRightSoft is not None:
+                gate.lLimitRightHard = gate.lLimitRightSoft
+            elif gate.lLimitRightHard is not None:
+                gate.lLimitRightSoft = gate.lLimitRightHard
+
+        # Find the indexes of the start and finish gates of each event
+        indsEventGatesDict = {}     # Dictionary where each key is an event name, storing a list in the form [indEventStart, indEventFinish]
+        for i, gate in enumerate(gates):
+            if gate.event is not None:
+                # Create the key if it doesn't exist
+                indsEventGatesDict[gate.event.name] = indsEventGatesDict.get(gate.event.name, [len(gates), -1])
+                # Store the event start/finish gate index
+                if gate.event.BStart:
+                    indsEventGatesDict[gate.event.name][0] = i
+                else:
+                    indsEventGatesDict[gate.event.name][1] = i
+
         # Set the gates attribute
         self.gates = np.array(gates)
 
-        # Find the indexes of the start and finish gates
-        indStart = -1
-        indFinish = -1
-        for i, gate in enumerate(gates):
-            if gate.event is not None:
-                if gate.event.type == 'StartFinish':
-                    if gate.event.BStart:
-                        indStart = i
-                    else:
-                        indFinish = i
-                    break
-
         if self.BClosedTrack:
             # Track is closed, roll the order of the gates so that the finish gate is the last index in the lists
-            self.gates = np.roll(self.gates, -indFinish - 1)
-        elif indStart < indFinish:
-            # Track is not closed, and the start gate comes before the finish gate
-            indsBadGates = [indStart, indFinish]
-            __saveTrackPlot(coordArraysDict, self.gates, indsBadGates)
-            raise ValueError(f"Track is not closed but the finish gate is before the start gate, see track plot in {trackPath}")
+            self.gates = np.roll(self.gates, -indsEventGatesDict['StartFinish'][1] - 1)
+        else:
+            # Track is not closed, check if any event start gates are after their finish gate
+            indsBadGates = []
+            for indsEventGates in indsEventGatesDict.values():
+                if indsEventGates[0] > indsBadGates[1]:
+                    indsBadGates.append(indsEventGates)
+            if indsBadGates:
+                __saveTrackPlot(coordArraysDict, self.gates, indsBadGates)
+                raise ValueError(f"Track is not closed but there are event finish gates before their start gates, see track plot in {trackPath}")
 
         # Check if there are any remaining event gates that haven't been included in the track
         if any(eventGatesDict.values()):
