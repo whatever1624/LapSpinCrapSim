@@ -258,7 +258,7 @@ def rotateVectorHeading(xy_xyz: NDArrayFloat1D,
     """
     c = np.cos(theta)
     s = np.sin(theta)
-    xy_xyzRotated = np.empty(2)
+    xy_xyzRotated = np.array(xy_xyz)
     xy_xyzRotated[0] = (c * xy_xyz[0]) + (s * xy_xyz[1])
     xy_xyzRotated[1] = -(s * xy_xyz[0]) + (c * xy_xyz[1])
     return xy_xyzRotated
