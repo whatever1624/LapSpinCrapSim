@@ -32,7 +32,7 @@ LIMIT_RIGHT_HARD_FILENAME = "xyzLimitRightHard.csv"
 
 # CoordinateArray constants
 RESAMPLE_SPATIAL_FREQ = 1                       # Frequency to resample the coordinate array for low-pass filtering (cycles/m)
-LP_FILT_SPATIAL_FREQ = 0.05                     # Low-pass cutoff spatial frequency (cycles/m)
+LP_FILT_SPATIAL_FREQ = 0.01                     # Low-pass cutoff spatial frequency (cycles/m) - 0.01 to 0.05 seem good (100 to 20 m wavelengths)
 LP_FILT_ORDER = 1                               # Order of the low-pass filter
 
 # Event constants
@@ -43,12 +43,17 @@ INTERNAL_EVENT_TYPES = Literal['GateCreation',  # Valid event types for internal
 # Gate constants
 GATE_MAX_WIDTH = 1000                           # Maximum width of the gate, used as the initial gate width during gate creation
 
-GATE_EXTEND_WIDTH_SOFT = 20                     # Additional width beyond the corresponding soft/hard track limits to extend the gate width on each
+GATE_EXTEND_WIDTH_SOFT = 25                     # Additional width beyond the corresponding soft/hard track limits to extend the gate width on each
 GATE_EXTEND_WIDTH_HARD = 10                     # side, to allow suitable penalties to be calculated if track limits are violated (m)
-                                                # Will extend the gate width following whichever is the more limiting criteria
+                                                # The gate width will be extended to whichever is the more limiting criteria - GATE_EXTEND_WIDTH_SOFT
+                                                # can be used to reduce gate skipping in tight corners if the hard track limits are significantly
+                                                # further away
                                                 #  - Higher gives more robustness, allowing a trajectory that exceeds track limits to still be solved
                                                 #  - Too high can cause gates to be skipped in tight corners due to overlapping, losing track limits
                                                 #    resolution
+
+GATE_SIMILARITY_THRESHOLD = 1e-6                # Threshold for difference in gate midpoints or gate heading angles, where if both are met, the gate
+                                                # is considered to lie on the same line (for floating point precision)
 
 # Track generation constants
 CLOSED_TRACK_THRESHOLD_DISTANCE = 20            # Maximum distance (as the crow flies) from the start to finish coordinates of the provided soft track
@@ -64,14 +69,14 @@ GATE_STEP_DISTANCE = 5                          # Distance between each consecut
 
 REDUCED_DISTANCE_WINDOW = 500                   # Window on each side for the distance bounds of the reduced coordinate array for gate creation (m)
 
-REDUCED_HEADING_WINDOW = 5 / 6 * np.pi          # Window on each side for the heading angle bounds of the reduced coordinate array for gate creation
+REDUCED_HEADING_WINDOW = 3 / 4 * np.pi          # Window on each side for the heading angle bounds of the reduced coordinate array for gate creation
                                                 # (radians)
 
 # Track plot constants
 TRACK_PLOT_AREA = 250                           # Area of the track plot saved after track generation or if track generation raised an exception
                                                 # manually (square inches)
 
-TRACK_PLOT_SPATIAL_RESOLUTION = 5               # Spatial resolution of the saved track plot (in pixels/m)
+TRACK_PLOT_SPATIAL_RESOLUTION = 10              # Spatial resolution of the saved track plot (in pixels/m)
 
 # Track normal vector constants
 PERTURB_DISTANCE = 1e-3                         # Distance to perturb when forward-differencing to calculate the track normal vector
@@ -176,6 +181,7 @@ class CoordinateArray:
             # Calculate AHeadingsFilt - low-pass filtered AHeadings
             # Resample to regular intervals, then filter, then resample back to original signal base
             AHeadingsResampled, sCoordsResampled = utils.resample(self.AHeadings, self.sCoords, RESAMPLE_SPATIAL_FREQ, True)
+            AHeadingsResampled[-1] = self.AHeadings[-1]
             AHeadingsFiltResampled = utils.filt(AHeadingsResampled, RESAMPLE_SPATIAL_FREQ, 'low', LP_FILT_SPATIAL_FREQ, LP_FILT_ORDER)
             self.AHeadingsFilt = np.interp(self.sCoords, sCoordsResampled, AHeadingsFiltResampled)
 
@@ -264,31 +270,40 @@ class CoordinateArray:
             sLowerWrapped = sLower
             sUpperWrapped = sUpper
 
+        def __inDistanceBounds(s: float) -> bool:
+            """
+            Internal function to check whether the distance s along the
+            coordinate array is within the distance bounds.
+
+            Args:
+                s: Distance along the coordinate array to check.
+
+            Returns:
+                Boolean of whether the distance s is within the distance bounds.
+            """
+            if BClosedTrack and (sLower < 0 or sUpper > self.sCoords[-1] or sLower > sUpper):
+                # Closed track and the bounds will wrap, or closed track and the bounds are already wrapped
+                if sLowerWrapped <= sUpperWrapped:
+                    # Wrapped bounds cover the whole track
+                    return True
+                else:
+                    # Wrapped bounds don't cover the whole track - and due to the wrapping, sLowerWrapped > sUpperWrapped
+                    return sLowerWrapped <= s or s <= sUpperWrapped
+            else:
+                # Not a closed track or the bounds don't wrap
+                return sLower <= s <= sUpper
+
         # Find the indexes within the heading angle bounds in the forwards and backwards direction
         # In each direction, stop once the filtered heading angle exceeds either the distance or heading angle bounds
         indsValid = []
         AHeadingsFiltWrapped = utils.wrap(self.AHeadingsFilt, (ALower + AUpper) / 2 - np.pi, (ALower + AUpper) / 2 + np.pi)
         for n, inds in enumerate((indsBackward, indsForward)):
             for i in inds:
-                # Check if the distance bounds are satisfied
-                if BClosedTrack and (sLower < 0 or sUpper > self.sCoords[-1] or sLower > sUpper):
-                    # Closed track and the bounds will wrap, or closed track and the bounds are already wrapped
-                    if sLowerWrapped <= sUpperWrapped:
-                        # Wrapped bounds cover the whole track, return all the indexes of the coordinate array
-                        BValidDistance = True
-                    else:
-                        # Wrapped bounds don't cover the whole track - and due to the wrapping, sLowerWrapped > sUpperWrapped
-                        BValidDistance = sLowerWrapped <= self.sCoords[i] or self.sCoords[i] <= sUpperWrapped
-                else:
-                    # Not a closed track or the bounds don't wrap
-                    BValidDistance = sLower <= self.sCoords[i] <= sUpper
-
-                # Check if the heading angle bounds are satisfied
-                BValidHeading = ALower <= AHeadingsFiltWrapped[i] <= AUpper
-
-                if BValidDistance and BValidHeading:
+                if __inDistanceBounds(self.sCoords[i]) and ALower <= AHeadingsFiltWrapped[i] <= AUpper:
+                    # Both the distance and heading angle bounds are satisfied
                     indsValid.append(i)
                 else:
+                    # Exceeded distance and/or heading bounds
                     break
 
         if len(indsValid) < 1:
@@ -343,25 +358,9 @@ class CoordinateArray:
             # Get the next index if the coordinate array continued in this direction
             nextInd = indsValid[indsIndex] - 1 if BStart else indsValid[indsIndex] + 1
             if BClosedTrack:
-                nextInd = utils.wrap(nextInd, 0, len(self.sCoords))
+                nextInd: int = int(utils.wrap(nextInd, 0, len(self.sCoords)))
 
-            # Check if the distance at this next index is outside the distance bounds
-            if BClosedTrack and (sLower < 0 or sUpper > self.sCoords[-1] or sLower > sUpper):
-                # Closed track and the bounds will wrap, or closed track and the bounds are already wrapped
-                if sLowerWrapped <= sUpperWrapped:
-                    # Wrapped distance bounds cover the whole track
-                    BOnDistBound = False
-                else:
-                    # Wrapped distance bounds don't cover the whole track - and due to the wrapping, sLowerWrapped > sUpperWrapped
-                    BOnDistBound = sUpperWrapped <= self.sCoords[nextInd] <= sLowerWrapped
-            elif 0 <= nextInd <= len(self.sCoords):
-                # Not a closed track or the bounds don't wrap
-                BOnDistBound = self.sCoords[nextInd] <= sLower or sUpper <= self.sCoords[nextInd]
-            else:
-                # Not a closed track and the next index is beyond the start/finish of the coordinate array
-                BOnDistBound = True
-
-            if BOnDistBound:
+            if not __inDistanceBounds(self.sCoords[nextInd]):
                 # On a distance bound (lower bound if indsIndex is 0, upper bound if indsIndex is -1), wrap the bound if the track is closed
                 sBound = sLower if indsIndex == 0 else sUpper
                 if BClosedTrack:
@@ -806,8 +805,9 @@ class Track:
     """
     def __init__(self,
                  trackPath: str,
+                 BForceTrackGen: bool = False,
                  BClosedTrackOverride: bool | None = None,
-                 BForceTrackGen: bool = False) -> None:
+                 BDebug: bool = False) -> None:
         """
         Initialises the Track object, by loading the Track object from a .pkl
         file in the specified folder, or if that fails, by generating the track
@@ -848,25 +848,26 @@ class Track:
         Args:
             trackPath: File path to the folder containing the .csv and .json
                 files required for track generation.
+            BForceTrackGen: If true, overrides and forces the track to be
+                generated and will overwrite the track .pkl file in the
+                specified folder. If false, will use the automatic logic of
+                loading from the .pkl file, and falling back to generating the
+                track if it fails.
             BClosedTrackOverride: Overrides the automatic logic for determining
                 if the track is a closed circuit. If this is None or not
                 provided, whether the track is closed or not is determined by
                 the maximum distance from the start to finish coordinates of the
                 track limit coordinate arrays. This has no effect if the track
                 is loaded from a .pkl file.
-            BForceTrackGen: If true, overrides and forces the track to be
-                generated and will overwrite the track .pkl file in the
-                specified folder. If false, will use the automatic logic of
-                loading from the .pkl file, and falling back to generating the
-                track if it fails.
+            BDebug: Whether to show debug plots of the gate creation process
+                during track generation.
         """
         if not BForceTrackGen:
             try:
                 # Try to load and initialise from the .pkl file
                 self.__initFromPkl(trackPath)
                 print("Successfully loaded and initialised Track from .pkl file")
-            except Exception:
-                # TODO: Find out what exceptions can happen to be more specific
+            except FileNotFoundError or AttributeError:
                 # Initialisation from .pkl failed
                 print("Failed to load and initialise Track from .pkl file")
                 BForceTrackGen = True
@@ -874,7 +875,7 @@ class Track:
         if BForceTrackGen:
             # Fall back to initialisation from track generation
             print("Initialising track from track generation")
-            self.__initFromTrackGen(trackPath, BClosedTrackOverride)
+            self.__initFromTrackGen(trackPath, BClosedTrackOverride, BDebug)
 
 
     def __initFromPkl(self,
@@ -893,11 +894,14 @@ class Track:
         self.gates = trackPkl.gates
         self.mesh = trackPkl.mesh
         self.BClosedTrack = trackPkl.BClosedTrack
+
+        # Set internal attributes from the internal attributes in the .pkl file
         self._indsPrevNext = trackPkl._indsPrevNext
 
     def __initFromTrackGen(self,
                            trackPath: str,
-                           BClosedTrackOverride: bool | None) -> None:
+                           BClosedTrackOverride: bool | None,
+                           BDebug: bool = False) -> None:
         """
         Internal method to initialise the Track object by generating the track
         from the .csv and .json files in the specified path.
@@ -912,6 +916,8 @@ class Track:
                 provided, whether the track is closed or not is determined by
                 the maximum distance from the start to finish coordinates of the
                 track limit coordinate arrays.
+            BDebug: Whether to show debug plots of the gate creation process
+                during track generation.
         """
         def __getGateFromCoords(xyLeft: NDArrayFloat1D,
                                 xyRight: NDArrayFloat1D,
@@ -1311,7 +1317,7 @@ class Track:
                     verticalalignment = 'center')
 
             # Set axis limits, make the axis scales equal, add the legend
-            ax.axis('square')
+            ax.set_aspect('equal')
             ax.set_xlim((xMin, xMax))
             ax.set_ylim((yMin, yMax))
             ax.legend()
@@ -1412,6 +1418,8 @@ class Track:
         prevGate = firstGate
         sDictPrev = sDictFirst
         BStopGateCreation = False
+        if BDebug:
+            plt.figure(layout='constrained')
         while not BStopGateCreation:
             # Get the reduced CoordinateArray objects and their Shapely LineStrings in the 2D [x, y] plane for each of the coordinate arrays, for the
             # expected region around the gate
@@ -1457,6 +1465,28 @@ class Track:
                     indsBadGates = [-1]
                     __saveTrackPlot(coordArraysDict, gates, indsBadGates)
                     raise ValueError(f"Both methods for optimisation of new gate placement failed, see track plot in {trackPath}")
+
+            # Debug plot reduced coordinate arrays, all gates in the gates list, and the candidate gate
+            if BDebug:
+                plt.clf()
+                for key, coordArray in reducedCoordArraysDict.items():
+                    plt.plot(coordArray.xyzCoords[:, 0], coordArray.xyzCoords[:, 1], label=key)
+                for gate in gates:
+                    plt.plot(gate.xyLine.xy[0], gate.xyLine.xy[1], c=(0, 0, 0))
+                plt.plot(candidateGate.xyLine.xy[0], candidateGate.xyLine.xy[1], c=(1, 1, 0))
+                lMargin = 1.5 * GATE_EXTEND_WIDTH_HARD
+                xMin = min([min(coordArray.xyzCoords[:, 0]) for coordArray in coordArraysDict.values()]) - lMargin
+                xMax = max([max(coordArray.xyzCoords[:, 0]) for coordArray in coordArraysDict.values()]) + lMargin
+                yMin = min([min(coordArray.xyzCoords[:, 1]) for coordArray in coordArraysDict.values()]) - lMargin
+                yMax = max([max(coordArray.xyzCoords[:, 1]) for coordArray in coordArraysDict.values()]) + lMargin
+                xAvg = (xMin + xMax) / 2
+                yAvg = (yMin + yMax) / 2
+                diff = max([xAvg - xMin, yAvg - yMin, xMax - xAvg, yMax - yAvg])
+                plt.axis('square')
+                plt.xlim(xAvg - diff, xAvg + diff)
+                plt.ylim(yAvg - diff, yAvg + diff)
+                plt.legend()
+                plt.pause(0.1)
 
             # Calculate the rest of the gate attributes
             sCandidateDict = {}
@@ -1569,12 +1599,13 @@ class Track:
                         del eventGatesContained[indStopEventGate + 1:]
                         del sEventGatesContained[indStopEventGate + 1:]
 
-                # Check if consecutive event gates intersect with each other at a single point (it is acceptable to intersect over a line, as event
-                # gates can share the same line)
+                # Check if consecutive event gates intersect with each other but don't share the same line
                 for i in range(len(eventGatesContained) - 1):
-                    intersection = shapely.intersection(eventGatesContained[i].xyLine, eventGatesContained[i + 1].xyLine)
-                    if isinstance(intersection, shapely.Point) and not intersection.is_empty:
-                        # Point intersection found between consecutive event gates, save the track plot for debugging and raise a ValueError
+                    if (eventGatesContained[i].xyLine.intersects(eventGatesContained[i + 1].xyLine)
+                            and (np.linalg.norm(eventGatesContained[i].xyMidpoint - eventGatesContained[i + 1].xyMidpoint)
+                                 + abs(eventGatesContained[i].AHeading - eventGatesContained[i + 1].AHeading) > GATE_SIMILARITY_THRESHOLD)):
+                        # Intersection found between consecutive event gates that don't share the same line,
+                        # save the track plot for debugging and raise a ValueError
                         indsBadGates = [len(gates), len(gates) + i]
                         for eventGate in eventGatesContained:
                             gates.append(eventGate)
@@ -1587,11 +1618,12 @@ class Track:
                 # last gate in the gates list and repeat until the first event gate no longer intersects with the last gate in the gates list
                 BIntersects = True
                 while BIntersects and len(gates) > 0:
-                    # Check if the first event gate contained by the track segment intersects with the last gate in the gates list at a single point
-                    # (it is acceptable to intersect over a line, as event gates can share the same line)
-                    intersection = shapely.intersection(eventGatesContained[0].xyLine, gates[-1].xyLine)
-                    if isinstance(intersection, shapely.Point) and not intersection.is_empty:
-                        # Point intersection found
+                    # Check if the first event gate contained by the track segment intersects with the last gate in the gates list
+                    # but doesn't the same line
+                    if (eventGatesContained[0].xyLine.intersects(gates[-1].xyLine)
+                            and (np.linalg.norm(eventGatesContained[0].xyMidpoint - gates[-1].xyMidpoint)
+                                 + abs(eventGatesContained[0].AHeading - gates[-1].AHeading) > GATE_SIMILARITY_THRESHOLD)):
+                        # Intersection found and gates don't share the same line
                         BIntersects = True
                         if gates[-1].event is None:
                             # Last gate in the gates list is not an event gate, remove it from the gates list and remove the last elements from all
@@ -1646,8 +1678,10 @@ class Track:
             sDictPrev = sCandidateDict
 
         print("Finished gate creation loop")
+        plt.close()
 
-        # Postprocessing and validation
+        ## Postprocessing and validation
+        print("Validating and postprocessing the gates")
         # Remove the first or last gate in the gates list if they have the event attribute with the GateCreation type
         for i in (0, -1):
             if gates[i].event is not None:
@@ -1719,8 +1753,10 @@ class Track:
 
         # Set the gates attribute
         self.gates = np.array(gates)
+        print("Successfully validated and postprocessed the gates")
 
         ## Track mesh creation ##
+        print("Creating track mesh")
         # Calculate [x, y, z] coordinates at the left and right coordinates of the gates to "artificially" expand the track mesh area and avoid NaNs
         nGates = len(self.gates)
         xyzGatesLeft = np.empty((nGates, 3))
@@ -1816,11 +1852,14 @@ class Track:
 
             # Create the interpolator for the region around this gate
             self.mesh[i] = scipy.interpolate.LinearNDInterpolator(xyzCoords[:, :2], xyzCoords[:, 2])
+        print("Finished creating track mesh")
 
         ## Saving ##
+        print("Saving track object and track plot to", trackPath)
         with open(os.path.join(trackPath, TRACK_PKL_FILENAME), 'wb') as pklFile:
             pkl.dump(self, pklFile, protocol=pkl.HIGHEST_PROTOCOL)
         __saveTrackPlot(coordArraysDict, self.gates)
+        print("Finished track generation")
 
     def getTrackZ(self,
                    xy: list[float] | NDArrayFloat1D,

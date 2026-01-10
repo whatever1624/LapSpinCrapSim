@@ -21,7 +21,7 @@ from Utils.typeAliases import Any, ListFloat2D, NDArrayFloat1D, NDArrayFloat2D, 
 # Oval track parameters
 saveFolder = r"OvalTestTrack"   # Folder to save the track data files to
 BClosed = True                  # Whether the track should be closed or open - open being omitting the normal start/finish straight
-AHeadingStart = 1               # Heading angle on the start/finish straight (radians)
+AHeadingStart = 0               # Heading angle on the start/finish straight (radians)
 ABankingMax = np.pi / 4         # Maximum banking angle in the middle of T1 (radians)
 lStep = 1                       # Approximate distance between coordinates (m)
 lStraight = 200                 # Length of the start/finish or back straight (m)

@@ -115,6 +115,12 @@ def filt(signal: list[float] | NDArrayFloat1D,
     fCutoffLower = fCutoff if np.isscalar(fCutoff) else min(fCutoff)
     padlen = int(min(np.ceil(5 * fSample / fCutoffLower), len(signal) - 1))
 
+    # If there is a low-pass component to the filter, set the first and last points to the average of the first/last cycle at the cutoff frequency
+    if 'h' not in filtType:
+        nPoints = min(int(fSample / fCutoffLower), len(signal))
+        signal[0] = np.mean(signal[:nPoints])
+        signal[-1] = np.mean(signal[-nPoints:])
+
     # Filter the signal
     sos = scipy.signal.butter(nOrder, fCutoff, filtType, output='sos', fs=fSample)
     signalFilt = scipy.signal.sosfiltfilt(sos, signal, padlen=padlen)
