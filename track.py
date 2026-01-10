@@ -73,13 +73,12 @@ REDUCED_HEADING_WINDOW = 3 / 4 * np.pi          # Window on each side for the he
                                                 # (radians)
 
 # Track plot constants
-TRACK_PLOT_AREA = 250                           # Area of the track plot saved after track generation or if track generation raised an exception
-                                                # manually (square inches)
-
-TRACK_PLOT_SPATIAL_RESOLUTION = 10              # Spatial resolution of the saved track plot (in pixels/m)
+TRACK_PLOT_MARGIN = 0.75                        # Margin around the track plot axes for the axis scales (inches)
+TRACK_PLOT_SCALE = 15                           # Scale of the track plot, for adjusting  size of the plot labels, line thicknesses etc. (m/inch)
+TRACK_PLOT_SPATIAL_RESOLUTION = 10              # Spatial resolution of the track plot (pixels/m)
 
 # Track normal vector constants
-PERTURB_DISTANCE = 1e-3                         # Distance to perturb when forward-differencing to calculate the track normal vector
+PERTURB_DISTANCE = 0.1                          # Distance to perturb when forward-differencing to calculate the track normal vector
 
 
 class CoordinateArray:
@@ -306,10 +305,9 @@ class CoordinateArray:
                     # Exceeded distance and/or heading bounds
                     break
 
+        # Validate that there are coordinates within the bounds specified, and remove duplicate valid indexes
         if len(indsValid) < 1:
             raise IndexError("No coordinates within the bounds specified")
-
-        # Remove duplicate valid indexes
         indsValid = utils.removeConsecutiveDuplicates(sorted(indsValid))
 
         # If the track is closed, roll the valid indexes array such that the indexes are continuously incrementing by 1, except for the wrap back to 0
@@ -400,7 +398,7 @@ class CoordinateArray:
                     indUpper = indsValid[indsIndex]
                 else:
                     indLower = indsValid[indsIndex]
-                    indUpper = indsValid[indsIndex] + 1
+                    indUpper = utils.wrap(indsValid[indsIndex] + 1, 0, len(self.AHeadingsFilt))
 
                 # Get the coordinate array attributes at the indexes surrounding this heading bound, ordered with increasing filtered heading angle
                 if self.AHeadingsFilt[indLower] < self.AHeadingsFilt[indUpper]:
@@ -1242,18 +1240,19 @@ class Track:
                 plot, probably using contours - but this will need to be
                 calculated around each gate
             """
-            # Calculate the limits of the plot (limits of the coordinate arrays, plus 1.5 times GATE_EXTEND_WIDTH_HARD
+            # Calculate the axis limits of the plot (limits of the coordinate arrays, plus 1.5 times GATE_EXTEND_WIDTH_HARD)
             lMargin = 1.5 * GATE_EXTEND_WIDTH_HARD
             xMin = min([min(coordArray.xyzCoords[:, 0]) for coordArray in coordArraysDict.values()]) - lMargin
             xMax = max([max(coordArray.xyzCoords[:, 0]) for coordArray in coordArraysDict.values()]) + lMargin
             yMin = min([min(coordArray.xyzCoords[:, 1]) for coordArray in coordArraysDict.values()]) - lMargin
             yMax = max([max(coordArray.xyzCoords[:, 1]) for coordArray in coordArraysDict.values()]) + lMargin
 
-            # Create the figure with width and height to match the aspect ratio of (xMax - xMin):(yMax - yMin) with total area TRACK_PLOT_AREA
-            scale = ((xMax - xMin) * (yMax - yMin)) ** 0.5
-            width = (xMax - xMin) / scale * (TRACK_PLOT_AREA ** 0.5)
-            height = (yMax - yMin) / scale * (TRACK_PLOT_AREA ** 0.5)
-            fig, ax = plt.subplots(1, 1, layout='constrained', figsize=(width, height))
+            # Create the figure and axes, setting their widths and heights
+            axWidth = (xMax - xMin) / TRACK_PLOT_SCALE
+            axHeight = (yMax - yMin) / TRACK_PLOT_SCALE
+            figWidth = axWidth + TRACK_PLOT_MARGIN * 2
+            figHeight = axHeight + TRACK_PLOT_MARGIN * 2
+            fig, ax = plt.subplots(1, 1, figsize=(figWidth, figHeight))
 
             # Plot the coordinate arrays - red/green and bright/dark for left/right soft/hard track limits, or grey if it's an extra coordinate array
             cDict = {'LimitLeftSoft': (1, 0, 0),
@@ -1271,20 +1270,22 @@ class Track:
                                    'LimitRightSoft': np.empty((len(gates), 2)),
                                    'LimitLeftHard': np.empty((len(gates), 2)),
                                    'LimitRightHard': np.empty((len(gates), 2))}
+            annotationSide = 1
             for i, gate in enumerate(gates):
-                # Plot the track gate
+                # Get the colour of the track gate line and text string for the annotation
                 c = (0, 0, 0)
                 text = str(i)
                 if gate.event is not None:
-                    text += " " + gate.event.name + (" (Start)" if gate.event.BStart else " (Finish)")
+                    text += "\n" + gate.event.name + ("\n(Start)" if gate.event.BStart else "\n(Finish)")
                     if gate.event.type == 'StartFinish':
                         c = (0, 1, 0) if gate.event.BStart else (1, 0, 0)
                 if indsBadGates:
                     ls = '--' if i in indsBadGates else '-'
                 else:
                     ls = '-'
+
+                # Plot the track gate
                 ax.plot(gate.xyLine.xy[0], gate.xyLine.xy[1], c=c, ls=ls)
-                ax.annotate(text, (gate.xyMidpoint[0], gate.xyMidpoint[1]))
 
                 # Calculate the [x, y] coordinates of the gate's intersections with the track limits coordinate arrays
                 keys = ['LimitLeftSoft', 'LimitRightSoft', 'LimitLeftHard', 'LimitRightHard']
@@ -1298,6 +1299,11 @@ class Track:
                     else:
                         xyIntersectionsDict[key][i] = np.array([xMin, yMin])
 
+                # Annotate the gate
+                xyVecSide = xyVecLeft * gate.lLimitLeftSoft / 2 if annotationSide < 0 else xyVecRight * gate.lLimitRightSoft / 2
+                ax.annotate(text, (gate.xyMidpoint[0] + xyVecSide[0], gate.xyMidpoint[1] + xyVecSide[1]), ha='center', va='center')
+                annotationSide *= -1
+
             # Plot the track gate intersections with the track limit coordinate arrays
             keyList = ['LimitLeftSoft', 'LimitRightSoft', 'LimitLeftHard', 'LimitRightHard']
             markerList = ['<', '>', '<', '>']
@@ -1307,27 +1313,21 @@ class Track:
                 ax.plot(xy[:, 0], xy[:, 1], c=cDict[key], fillstyle=fillList[i], ls='', marker=markerList[i])
 
             # Add text to explain the notation
-            ax.text((xMin + xMax) / 2,
-                    (yMin + yMax) / 2,
-                    "Track limit coordinates are coloured with red/green for left/right, light/dark for soft/hard\n"
-                    "Extra coordinate arrays used for increased track mesh resolution are coloured grey\n"
-                    "Track gates are coloured by event type, with markers at their calculated intersections with the track limits\n"
-                    "Track gates causing an exception to be raised during track generation are shown with dotted lines",
-                    horizontalalignment='center',
-                    verticalalignment = 'center')
+            ax.set_title("Track limit coordinates are coloured with red/green for left/right, light/dark for soft/hard\n"
+                         "Extra coordinate arrays used for increased track mesh resolution are coloured grey\n"
+                         "Track gates are coloured by event type, with markers at their calculated intersections with the track limits\n"
+                         "Track gates causing an exception to be raised during track generation are shown with dotted lines",
+                         fontsize=plt.rcParams['font.size'])
 
-            # Set axis limits, make the axis scales equal, add the legend
+            # Set the position of the axes, make the axis scales equal, set axis limits, add the legend
+            ax.set_position((TRACK_PLOT_MARGIN / figWidth, TRACK_PLOT_MARGIN / figHeight, axWidth / figWidth, axHeight / figHeight))
             ax.set_aspect('equal')
             ax.set_xlim((xMin, xMax))
             ax.set_ylim((yMin, yMax))
             ax.legend()
 
-            # Calculate the dpi required
-            bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-            axWidth, axHeight = bbox.width, bbox.height
+            # Calculate the dpi required and save the track plot
             dpi = TRACK_PLOT_SPATIAL_RESOLUTION * (((xMax - xMin) / axWidth) + ((yMax - yMin) / axHeight))
-
-            # Save the track plot
             fig.savefig(os.path.join(trackPath, TRACK_PLOT_FILENAME), dpi=dpi)
             plt.close(fig)
 
@@ -1928,6 +1928,10 @@ class Track:
         interpolators don't seem to return their gradients. If the forward
         differencing in any direction gets a NaN z coordinate, will use
         backwards differencing for that direction.
+
+        TODO: Use more points to calculate the track normal to approximate the
+            average normal in the circle of radius PERTURB_DISTANCE - maybe 9
+            points (centre, axis-aligned cross, diagonal cross)
 
         Args:
             xy_xyz: Coordinate to calculate the track normal vector at, in the
