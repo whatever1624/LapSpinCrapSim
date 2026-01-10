@@ -13,7 +13,6 @@ The generated track:
     the start and end of the point-to-point track)
 """
 import os
-import csv
 import numpy as np
 import matplotlib.pyplot as plt
 from Utils import utils
@@ -21,7 +20,7 @@ from Utils.typeAliases import Any, ListFloat2D, NDArrayFloat1D, NDArrayFloat2D, 
 
 # Oval track parameters
 saveFolder = r"OvalTestTrack"   # Folder to save the track data files to
-BClosed = False                  # Whether the track should be closed or open - open being omitting the normal start/finish straight
+BClosed = True                  # Whether the track should be closed or open - open being omitting the normal start/finish straight
 AHeadingStart = 1               # Heading angle on the start/finish straight (radians)
 ABankingMax = np.pi / 4         # Maximum banking angle in the middle of T1 (radians)
 lStep = 1                       # Approximate distance between coordinates (m)
@@ -116,9 +115,7 @@ zMin = min([min(xyz[:, 2]) for xyz in xyzCoordsDict.values()])
 zMax = max([max(xyz[:, 2]) for xyz in xyzCoordsDict.values()])
 for key, xyzCoords in xyzCoordsDict.items():
     plt.scatter(xyzCoords[:, 0], xyzCoords[:, 1], c=xyzCoords[:, 2], cmap='magma', marker='.', vmin=zMin, vmax=zMax, label=key)
-    with open(os.path.join(saveFolder, key + ".csv"), 'w') as csvFile:
-        csvWriter = csv.writer(csvFile)
-        csvWriter.writerows(xyzCoords)
+    np.savetxt(os.path.join(saveFolder, key + ".csv"), xyzCoords, fmt='%1.18f', delimiter=',')
 plt.axis('equal')
 plt.legend()
 plt.show()

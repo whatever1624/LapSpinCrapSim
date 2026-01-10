@@ -72,7 +72,7 @@ def getHeading(xy_xyz: NDArrayFloat1D | NDArrayFloat2D,
         raise ValueError(f"Invalid argument xy_xyz of dimension {ndim}: must be 1D or 2D")
 
     # Calculate heading angle(s)
-    AHeading = np.arctan2(y, x)
+    AHeading = np.arctan2(x, y)
 
     # If not BZeroCentred, wrap heading angle(s) from 0 to 2 pi
     if not BZeroCentred:
@@ -105,6 +105,11 @@ def filt(signal: list[float] | NDArrayFloat1D,
     Returns:
         Filtered signal, as a NumPy array.
     """
+    # Set the first and last points of the signal to the average of the first/last 10 points - to help the odd padding type work sensibly
+    signal = signal.copy()
+    signal[0] = np.mean(signal[:10])
+    signal[-1] = np.mean(signal[-10:])
+
     # Calculate the filter padlen as the number of samples in 5 cycles of the (lowest) cutoff frequency
     # This is to avoid flattened artifacts at the start/end of the signal with a low-pass filter
     fCutoffLower = fCutoff if np.isscalar(fCutoff) else min(fCutoff)
@@ -214,8 +219,10 @@ def getIndsWithoutConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, .
         Array with the indexes that omit elements causing consecutive duplicates
         along the axis specified.
     """
-    return np.append(True, np.diff(arr, axis=axis).astype(np.bool))
-
+    diff = np.diff(arr, axis=axis).astype(np.bool)
+    if diff.ndim > 1:
+        diff = np.any(diff, axis=-1)
+    return np.append(0, np.where(diff)[0] + 1)
 
 def removeConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, ...], np.dtype[Any]],
                                 axis: int = -1) -> np.ndarray[tuple[Any, ...], np.dtype[Any]]:
@@ -235,7 +242,7 @@ def removeConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, ...], np.
     Returns:
         Array with the consecutive duplicates removed along the axis specified.
     """
-    return arr[getIndsWithoutConsecutiveDuplicates(arr, axis)]
+    return np.array(arr)[getIndsWithoutConsecutiveDuplicates(arr, axis)]
 
 
 def rotateVectorHeading(xy_xyz: NDArrayFloat1D,
@@ -258,7 +265,7 @@ def rotateVectorHeading(xy_xyz: NDArrayFloat1D,
     """
     c = np.cos(theta)
     s = np.sin(theta)
-    xy_xyzRotated = np.array(xy_xyz)
+    xy_xyzRotated = np.array(xy_xyz, dtype=float)
     xy_xyzRotated[0] = (c * xy_xyz[0]) + (s * xy_xyz[1])
     xy_xyzRotated[1] = -(s * xy_xyz[0]) + (c * xy_xyz[1])
     return xy_xyzRotated
