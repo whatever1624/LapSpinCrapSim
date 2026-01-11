@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 # Project python modules
 from track import Track
 
-ovalTestTrack = Track(r"C:\Users\Willow\Documents\Repos\LapSpinCrapSim\Tracks\OvalTestTrack", True, BDebug=True)
+ovalTestTrack = Track(r"C:\Users\Willow\Documents\Repos\LapSpinCrapSim\Tracks\OvalTestTrack", True, BDebug=False)
 
 fig, axs = plt.subplots(2, 1, layout='constrained')
 for i, gate in enumerate(ovalTestTrack.gates):

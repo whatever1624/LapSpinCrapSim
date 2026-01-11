@@ -76,6 +76,10 @@ REDUCED_HEADING_WINDOW = 3 / 4 * np.pi          # Window on each side for the he
 TRACK_PLOT_MARGIN = 0.75                        # Margin around the track plot axes for the axis scales (inches)
 TRACK_PLOT_SCALE = 15                           # Scale of the track plot, for adjusting  size of the plot labels, line thicknesses etc. (m/inch)
 TRACK_PLOT_SPATIAL_RESOLUTION = 10              # Spatial resolution of the track plot (pixels/m)
+TRACK_PLOT_ZMAP_SPATIAL_RESOLUTION = 1          # Spatial resolution of the z coordinate map for the track plot (z coordinate points/m)
+TRACK_PLOT_ZMAP_CONTOUR_INTERVALS = 5           # Spacing between contour levels (m)
+TRACK_PLOT_OVERWRITE_Z = True                   # If true, overwrites the z coordinates with the values from further along the track, if false then
+                                                # keeps z coordinates that were from earlier points on the track
 
 # Track normal vector constants
 PERTURB_DISTANCE = 0.1                          # Distance to perturb when forward-differencing to calculate the track normal vector
@@ -398,7 +402,7 @@ class CoordinateArray:
                     indUpper = indsValid[indsIndex]
                 else:
                     indLower = indsValid[indsIndex]
-                    indUpper = utils.wrap(indsValid[indsIndex] + 1, 0, len(self.AHeadingsFilt))
+                    indUpper = indsValid[indsIndex] + 1 if indsValid[indsIndex] + 1 < len(self.AHeadingsFilt) - 1 else 0
 
                 # Get the coordinate array attributes at the indexes surrounding this heading bound, ordered with increasing filtered heading angle
                 if self.AHeadingsFilt[indLower] < self.AHeadingsFilt[indUpper]:
@@ -893,9 +897,6 @@ class Track:
         self.mesh = trackPkl.mesh
         self.BClosedTrack = trackPkl.BClosedTrack
 
-        # Set internal attributes from the internal attributes in the .pkl file
-        self._indsPrevNext = trackPkl._indsPrevNext
-
     def __initFromTrackGen(self,
                            trackPath: str,
                            BClosedTrackOverride: bool | None,
@@ -1262,7 +1263,8 @@ class Track:
             for key, coordArray in coordArraysDict.items():
                 ax.plot(coordArray.xyzCoords[:, 0], coordArray.xyzCoords[:, 1], c=cDict.get(key, (0.5, 0.5, 0.5)), label=key)
 
-            # Plot the track gates, also in this loop calculate the [x, y] coordinates of the gate's intersections with the track limits
+            # Plot the track gates, calculate the [x, y] coordinates of the gate's intersections with the track limits, calculate the z coordinates
+            # of the points local to the gate
             #  - Colours: black if no event, green if start gate, red if finish gate
             #  - Line style: Dashed if it is a bad gate, solid otherwise
             #  - Annotation: Index of the gate, name and whether it's the start/finish if it's an event gate
@@ -1311,6 +1313,66 @@ class Track:
             for i, key in enumerate(keyList):
                 xy = xyIntersectionsDict[key]
                 ax.plot(xy[:, 0], xy[:, 1], c=cDict[key], fillstyle=fillList[i], ls='', marker=markerList[i])
+
+            # Calculate and plot the z coordinates of the track using a colour mesh and contours
+            try:
+                xCoords = np.arange(np.floor(xMin * TRACK_PLOT_ZMAP_SPATIAL_RESOLUTION) / TRACK_PLOT_ZMAP_SPATIAL_RESOLUTION,
+                                    np.ceil(xMax * TRACK_PLOT_ZMAP_SPATIAL_RESOLUTION) / TRACK_PLOT_ZMAP_SPATIAL_RESOLUTION
+                                        + 1 / TRACK_PLOT_ZMAP_SPATIAL_RESOLUTION,
+                                    1 / TRACK_PLOT_ZMAP_SPATIAL_RESOLUTION)
+                yCoords = np.arange(np.floor(yMin * TRACK_PLOT_ZMAP_SPATIAL_RESOLUTION) / TRACK_PLOT_ZMAP_SPATIAL_RESOLUTION,
+                                    np.ceil(yMax * TRACK_PLOT_ZMAP_SPATIAL_RESOLUTION) / TRACK_PLOT_ZMAP_SPATIAL_RESOLUTION
+                                        + 1 / TRACK_PLOT_ZMAP_SPATIAL_RESOLUTION,
+                                    1 / TRACK_PLOT_ZMAP_SPATIAL_RESOLUTION)
+                zMap = np.full((len(yCoords), len(xCoords)), np.nan)    # matplotlib expects rows as y, columns as x
+
+                # At every gate
+                for indGate in range(len(gates)):
+                    # Get the indexes of the previous and next gates
+                    if self.BClosedTrack:
+                        indGatePrev = indGate - 1 if indGate > 0 else len(gates) - 1
+                        indGateNext = indGate + 1 if indGate < len(gates) - 1 else 0
+                    else:
+                        indGatePrev = max(indGate - 1, 0)
+                        indGateNext = min(indGate + 1, len(gates) - 1)
+
+                    # Get the left and right coordinates of the current, previous and next gates - in the form [[xLeft, yLeft], [xRight, yRight]]
+                    xyGateLine = np.array(gates[indGate].xyLine.xy).T
+                    xyGateLinePrev = np.array(gates[indGatePrev].xyLine.xy).T
+                    xyGateLineNext = np.array(gates[indGateNext].xyLine.xy).T
+
+                    # Get the coordinates of the virtual gates at the half-step between the gate and the previous/next gate
+                    xyLineHalfStepPrev = np.array(((xyGateLine[0] + xyGateLinePrev[0]) / 2, (xyGateLine[1] + xyGateLinePrev[1]) / 2))
+                    xyLineHalfStepNext = np.array(((xyGateLine[0] + xyGateLineNext[0]) / 2, (xyGateLine[1] + xyGateLineNext[1]) / 2))
+
+                    # Get the indexes within the rectangular bounding box surrounding the local region around the gate
+                    xLocalMin = min(min(xyLineHalfStepPrev[:, 0]), min(xyLineHalfStepNext[:, 0]))
+                    xLocalMax = max(max(xyLineHalfStepPrev[:, 0]), max(xyLineHalfStepNext[:, 0]))
+                    yLocalMin = min(min(xyLineHalfStepPrev[:, 1]), min(xyLineHalfStepNext[:, 1]))
+                    yLocalMax = max(max(xyLineHalfStepPrev[:, 1]), max(xyLineHalfStepNext[:, 1]))
+                    xInds = np.where((xLocalMin <= xCoords) & (xCoords <= xLocalMax))[0]
+                    yInds = np.where((yLocalMin <= yCoords) & (yCoords <= yLocalMax))[0]
+                    if len(xInds) > 0 and len(yInds) > 0:
+                        for xInd in xInds:
+                            for yInd in yInds:
+                                xy = (xCoords[xInd], yCoords[yInd])
+                                if np.isnan(zMap[yInd, xInd]) or TRACK_PLOT_OVERWRITE_Z:
+                                    # Check if the gate index specified is correct for the specified coordinate
+                                    if (utils.getSideOfLine(xy, xyLineHalfStepPrev[0], xyLineHalfStepPrev[1])
+                                            <= 0 <= utils.getSideOfLine(xy, xyLineHalfStepNext[0], xyLineHalfStepNext[1])):
+                                        # Coordinate xy is between the lines xyLineHalfStepPrev and xyLineHalfStepNext
+                                        zMap[yInd, xInd] = self.mesh[indGate](xy[0], xy[1])
+
+                # Plot filled contours - note that matplotlib expects rows as y, columns as x
+                indsNotNaN = np.invert(np.isnan(zMap))
+                zMin = np.floor(np.min(zMap[indsNotNaN]) / TRACK_PLOT_ZMAP_CONTOUR_INTERVALS) * TRACK_PLOT_ZMAP_CONTOUR_INTERVALS
+                zMax = np.ceil(np.max(zMap[indsNotNaN]) / TRACK_PLOT_ZMAP_CONTOUR_INTERVALS) * TRACK_PLOT_ZMAP_CONTOUR_INTERVALS
+                ax.contourf(xCoords, yCoords, zMap, vmin=zMin, vmax=zMax,
+                            levels=np.arange(zMin, zMax + TRACK_PLOT_ZMAP_CONTOUR_INTERVALS, TRACK_PLOT_ZMAP_CONTOUR_INTERVALS))
+
+            except AttributeError:
+                # __saveTrackPlot() likely called from a manually raised exception, before the track mesh was created
+                pass
 
             # Add text to explain the notation
             ax.set_title("Track limit coordinates are coloured with red/green for left/right, light/dark for soft/hard\n"
@@ -1792,10 +1854,6 @@ class Track:
         coordArraysDict[keyGateLeft] = CoordinateArray(xyzGatesLeft, self.BClosedTrack)
         coordArraysDict[keyGateRight] = CoordinateArray(xyzGatesRight, self.BClosedTrack)
 
-        # Make an internal attribute storing [iPrev, iNext] for each gate (indexes of the previous and next gates with different midpoints
-        # to the current gate), to avoid re-calculation in calcTrackZ()
-        self._indsPrevNext = np.empty((nGates, 2), dtype=int)
-
         # Create the track mesh, which is an array Scipy multivariate interpolators local to the area around their index's gate
         self.mesh = np.empty(nGates, dtype=scipy.interpolate.LinearNDInterpolator)
         for i, gate in enumerate(self.gates):
@@ -1829,7 +1887,6 @@ class Track:
                 xyzCoords = np.vstack((xyzCoords, coordArraysDict[keyGateLeft].xyzCoords[iNext], coordArraysDict[keyGateRight].xyzCoords[iNext]))
                 if all(self.gates[iNext].xyMidpoint != gate.xyMidpoint):
                     BFoundNext = True
-            self._indsPrevNext[i] = np.array([iPrev, iNext])
 
             # Get the [x, y, z] coordinates of all the reduced coordinate arrays (reduced to be between the previous and next gates), except for the
             # 2 new coordinate arrays from the left/right coordinates of the gates that were added above
@@ -1862,9 +1919,9 @@ class Track:
         print("Finished track generation")
 
     def getTrackZ(self,
-                   xy: list[float] | NDArrayFloat1D,
-                   indGate: int,
-                   BReturnNaN: bool = False) -> float:
+                  xy: list[float] | NDArrayFloat1D,
+                  indGate: int,
+                  BReturnNaN: bool = False) -> float:
         """
         Calculates the z coordinate of the track at the specified [x, y]
         coordinate using the track mesh (local z coordinate interpolators).
@@ -1885,27 +1942,32 @@ class Track:
         Returns:
             z coordinate at the specified [x, y] coordinate.
         """
-        # Store previous and next gate indexes for easier access
-        indGatePrev = self._indsPrevNext[indGate][0]
-        indGateNext = self._indsPrevNext[indGate][1]
+        # Calculate the previous and next gate indexes
+        if self.BClosedTrack:
+            indGatePrev = indGate - 1 if indGate > 0 else len(self.gates) - 1
+            indGateNext = indGate + 1 if indGate < len(self.gates) - 1 else 0
+        else:
+            indGatePrev = max(indGate - 1, 0)
+            indGateNext = min(indGate + 1, len(self.gates) - 1)
 
-        # Calculate the midpoints and left-right direction vectors of the virtual gates at the half-step between the gate and the previous/next gate
-        xyLineHalfStepPrev = (((self.gates[indGate].xyMidpoint + self.gates[indGatePrev].xyMidpoint) / 2)
-                              + utils.rotateVectorHeading(np.array([0, 1]),
-                                                          (self.gates[indGate].AHeading + self.gates[indGatePrev].AHeading + np.pi) / 2))
-        xyLineHalfStepNext = (((self.gates[indGate].xyMidpoint + self.gates[indGateNext].xyMidpoint) / 2)
-                              + utils.rotateVectorHeading(np.array([0, 1]),
-                                                          (self.gates[indGate].AHeading + self.gates[indGateNext].AHeading + np.pi) / 2))
+        # Get the left and right coordinates of the current, previous and next gates - in the form [[xLeft, yLeft], [xRight, yRight]]
+        xyGateLine = np.array(self.gates[indGate].xyLine.xy).T
+        xyGateLinePrev = np.array(self.gates[indGatePrev].xyLine.xy).T
+        xyGateLineNext = np.array(self.gates[indGateNext].xyLine.xy).T
+
+        # Get the coordinates of the virtual gates at the half-step between the gate and the previous/next gate
+        xyLineHalfStepPrev = np.array(((xyGateLine[0] + xyGateLinePrev[0]) / 2, (xyGateLine[1] + xyGateLinePrev[1]) / 2))
+        xyLineHalfStepNext = np.array(((xyGateLine[0] + xyGateLineNext[0]) / 2, (xyGateLine[1] + xyGateLineNext[1]) / 2))
 
         # Check if the gate index specified is correct for the specified coordinate
-        if utils.getSideOfLine(xy, xyLineHalfStepPrev, xyLineHalfStepPrev) > 0:
-            # Specified coordinate is behind the virtual gate at the half-step between the gate and the previous gate
+        if utils.getSideOfLine(xy, xyLineHalfStepPrev[0], xyLineHalfStepPrev[1]) > 0 and indGate != indGatePrev:
+            # Coordinate is behind the virtual gate at the half-step between the gate and the previous gate, use previous gate's interpolator
             z = self.getTrackZ(xy, indGatePrev, BReturnNaN)
-        elif utils.getSideOfLine(xy, xyLineHalfStepNext, xyLineHalfStepNext) < 0:
-            # Specified coordinate is ahead of the virtual gate at the half-step between the gate and the next gate
+        elif utils.getSideOfLine(xy, xyLineHalfStepNext[0], xyLineHalfStepNext[1]) < 0 and indGate != indGateNext:
+            # Coordinate is ahead of the virtual gate at the half-step between the gate and the next gate, use next gate's interpolator
             z = self.getTrackZ(xy, indGateNext, BReturnNaN)
         else:
-            # Index is correct for the specified coordinate
+            # Index is correct for the coordinate
             z = self.mesh[indGate](xy[0], xy[1])
 
         # Sanitise the z coordinate

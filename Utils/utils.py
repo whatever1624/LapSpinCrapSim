@@ -277,7 +277,7 @@ def rotateVectorHeading(xy_xyz: NDArrayFloat1D,
     return xy_xyzRotated
 
 
-def getSideOfLine(xy_xyzPoint: NDArrayFloat1D,
+def getSideOfLine(xy_xyzPoint: list[float] | NDArrayFloat1D | tuple[float, float],
                   xy_xyzLineStart: NDArrayFloat1D,
                   xy_xyzLineEnd: NDArrayFloat1D) -> float:
     """
