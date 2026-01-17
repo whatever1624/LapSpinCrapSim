@@ -77,7 +77,7 @@ TRACK_PLOT_MARGIN = 0.75                        # Margin around the track plot a
 TRACK_PLOT_SCALE = 15                           # Scale of the track plot, for adjusting  size of the plot labels, line thicknesses etc. (m/inch)
 TRACK_PLOT_SPATIAL_RESOLUTION = 10              # Spatial resolution of the track plot (pixels/m)
 TRACK_PLOT_ZMAP_SPATIAL_RESOLUTION = 1          # Spatial resolution of the z coordinate map for the track plot (z coordinate points/m)
-TRACK_PLOT_ZMAP_CONTOUR_INTERVALS = 5           # Spacing between contour levels (m)
+TRACK_PLOT_ZMAP_CONTOUR_INTERVALS = 2           # Spacing between contour levels (m)
 TRACK_PLOT_OVERWRITE_Z = True                   # If true, overwrites the z coordinates with the values from further along the track, if false then
                                                 # keeps z coordinates that were from earlier points on the track
 
@@ -1236,10 +1236,6 @@ class Track:
                 gates: List or array of Gate objects to be plotted.
                 indsBadGates: List of indexes corresponding to bad gates, which
                     will be plotted as dotted lines.
-
-            TODO: Try to find a way to also show the track elevation in this
-                plot, probably using contours - but this will need to be
-                calculated around each gate
             """
             # Calculate the axis limits of the plot (limits of the coordinate arrays, plus 1.5 times GATE_EXTEND_WIDTH_HARD)
             lMargin = 1.5 * GATE_EXTEND_WIDTH_HARD
@@ -1248,7 +1244,7 @@ class Track:
             yMin = min([min(coordArray.xyzCoords[:, 1]) for coordArray in coordArraysDict.values()]) - lMargin
             yMax = max([max(coordArray.xyzCoords[:, 1]) for coordArray in coordArraysDict.values()]) + lMargin
 
-            # Create the figure and axes, setting their widths and heights
+            # Create the figure, main axes and colour bar axes, setting their widths and heights
             axWidth = (xMax - xMin) / TRACK_PLOT_SCALE
             axHeight = (yMax - yMin) / TRACK_PLOT_SCALE
             figWidth = axWidth + TRACK_PLOT_MARGIN * 2
@@ -1367,12 +1363,24 @@ class Track:
                 indsNotNaN = np.invert(np.isnan(zMap))
                 zMin = np.floor(np.min(zMap[indsNotNaN]) / TRACK_PLOT_ZMAP_CONTOUR_INTERVALS) * TRACK_PLOT_ZMAP_CONTOUR_INTERVALS
                 zMax = np.ceil(np.max(zMap[indsNotNaN]) / TRACK_PLOT_ZMAP_CONTOUR_INTERVALS) * TRACK_PLOT_ZMAP_CONTOUR_INTERVALS
-                ax.contourf(xCoords, yCoords, zMap, vmin=zMin, vmax=zMax,
+                contours = ax.contourf(xCoords, yCoords, zMap, cmap='BuPu_r', vmin=zMin, vmax=zMax,
                             levels=np.arange(zMin, zMax + TRACK_PLOT_ZMAP_CONTOUR_INTERVALS, TRACK_PLOT_ZMAP_CONTOUR_INTERVALS))
+
+                # Add colour bar
+                caxWidth = TRACK_PLOT_MARGIN / 4
+                cax = fig.add_axes(((figWidth - TRACK_PLOT_MARGIN - caxWidth) / figWidth,
+                                    TRACK_PLOT_MARGIN / figHeight,
+                                    caxWidth / figWidth,
+                                    axHeight / figHeight))
+                fig.colorbar(contours, cax, location='right', extend='neither')
+
+                # Add the legend - reducing the area that the legend can be placed to avoid interfering with the colour bar
+                ax.legend(bbox_to_anchor=(0, 0, 1 - (caxWidth / axWidth), 1))
 
             except AttributeError:
                 # __saveTrackPlot() likely called from a manually raised exception, before the track mesh was created
-                pass
+                # Add the legend - can be placed in any part of the axes
+                ax.legend()
 
             # Add text to explain the notation
             ax.set_title("Track limit coordinates are coloured with red/green for left/right, light/dark for soft/hard\n"
@@ -1381,12 +1389,11 @@ class Track:
                          "Track gates causing an exception to be raised during track generation are shown with dotted lines",
                          fontsize=plt.rcParams['font.size'])
 
-            # Set the position of the axes, make the axis scales equal, set axis limits, add the legend
+            # Set the position of the axes, make the axis scales equal, set axis limits
             ax.set_position((TRACK_PLOT_MARGIN / figWidth, TRACK_PLOT_MARGIN / figHeight, axWidth / figWidth, axHeight / figHeight))
             ax.set_aspect('equal')
             ax.set_xlim((xMin, xMax))
             ax.set_ylim((yMin, yMax))
-            ax.legend()
 
             # Calculate the dpi required and save the track plot
             dpi = TRACK_PLOT_SPATIAL_RESOLUTION * (((xMax - xMin) / axWidth) + ((yMax - yMin) / axHeight))
