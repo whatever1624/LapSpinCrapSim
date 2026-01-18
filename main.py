@@ -18,7 +18,7 @@ ovalTestTrack = Track(r"C:\Users\Willow\Documents\Repos\LapSpinCrapSim\Tracks\Ov
 fig, axs = plt.subplots(2, 1, layout='constrained')
 for i, gate in enumerate(ovalTestTrack.gates):
     z = ovalTestTrack.getTrackZ(gate.xyMidpoint, i)
-    n = ovalTestTrack.getTrackNormal(gate.xyMidpoint, i)
+    n = ovalTestTrack.getTrackNormal(gate.xyMidpoint, i, 6)
     gateStr = f"Gate {i} [{gate.xyMidpoint[0]:.1f}, {gate.xyMidpoint[1]:.1f}]"
     print(f"{gateStr}{" " * (30 - len(gateStr))}{z:.3f}\t{n}")
 

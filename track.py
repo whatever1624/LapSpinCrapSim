@@ -31,7 +31,6 @@ LIMIT_LEFT_HARD_FILENAME = "xyzLimitLeftHard.csv"
 LIMIT_RIGHT_HARD_FILENAME = "xyzLimitRightHard.csv"
 
 # CoordinateArray constants
-RESAMPLE_SPATIAL_FREQ = 1                       # Frequency to resample the coordinate array for low-pass filtering (cycles/m)
 LP_FILT_SPATIAL_FREQ = 0.01                     # Low-pass cutoff spatial frequency (cycles/m) - 0.01 to 0.05 seem good (100 to 20 m wavelengths)
 LP_FILT_ORDER = 1                               # Order of the low-pass filter
 
@@ -82,7 +81,8 @@ TRACK_PLOT_OVERWRITE_Z = True                   # If true, overwrites the z coor
                                                 # keeps z coordinates that were from earlier points on the track
 
 # Track normal vector constants
-PERTURB_DISTANCE = 0.1                          # Distance to perturb when forward-differencing to calculate the track normal vector
+PERTURB_DISTANCE = 0.1                          # Radius of the circle around the specified coordinate used to sample perturbed coordinates to
+                                                # calculate the track normal vector
 
 
 class CoordinateArray:
@@ -93,7 +93,7 @@ class CoordinateArray:
     and track mesh.
 
     Has methods:
-        - rotateHeading(AHeading)
+        - rotateHeadings(theta)
         - getReducedCoordArray(sRef, sLower, sUpper, ALower, AUpper)
 
     Attributes:
@@ -182,10 +182,10 @@ class CoordinateArray:
             self.AHeadings = (AHeadingsForwards + AHeadingsBackwards) / 2
 
             # Calculate AHeadingsFilt - low-pass filtered AHeadings
-            # Resample to regular intervals, then filter, then resample back to original signal base
-            AHeadingsResampled, sCoordsResampled = utils.resample(self.AHeadings, self.sCoords, RESAMPLE_SPATIAL_FREQ, True)
+            # Resample to regular intervals (10x the low-pass filter cutoff frequency), then filter, then resample back to original signal base
+            AHeadingsResampled, sCoordsResampled = utils.resample(self.AHeadings, self.sCoords, LP_FILT_SPATIAL_FREQ * 10, True)
             AHeadingsResampled[-1] = self.AHeadings[-1]
-            AHeadingsFiltResampled = utils.filt(AHeadingsResampled, RESAMPLE_SPATIAL_FREQ, 'low', LP_FILT_SPATIAL_FREQ, LP_FILT_ORDER)
+            AHeadingsFiltResampled = utils.filt(AHeadingsResampled, LP_FILT_SPATIAL_FREQ * 10, 'low', LP_FILT_SPATIAL_FREQ, LP_FILT_ORDER)
             self.AHeadingsFilt = np.interp(self.sCoords, sCoordsResampled, AHeadingsFiltResampled)
 
     def rotateHeadings(self,
@@ -193,11 +193,12 @@ class CoordinateArray:
         """
         Offsets the attributes AHeadings and AHeadingsFilt by theta.
 
-        Should be used to correct the calculated heading angle attributes to
-        ensure that all CoordinateArray objects are in the same rotation.
+        Use this to correct the calculated heading angle attributes to ensure
+        that all CoordinateArray objects are in the same rotation.
 
         Args:
-            theta: Heading angle in radians to offset the attributes.
+            theta: Heading angle in radians, clockwise, to offset the AHeadings
+                and AHeadingsFilt attributes.
         """
         self.AHeadings += theta
         self.AHeadingsFilt += theta
@@ -214,7 +215,10 @@ class CoordinateArray:
 
         The reduced coordinates are all the coordinates moving forward and
         backward from the reference distance sRef along the coordinate array,
-        until it gets to a distance or heading bound.
+        until a distance or heading bound is reached. The coordinate on the
+        bound is then interpolated for both the start and finish points of the
+        reduced coordinate array. The coordinates are ordered in the direction
+        of travel.
 
         Args:
             sRef: Reference distance along the coordinate array. If the track is
@@ -239,8 +243,8 @@ class CoordinateArray:
         Raises:
             ValueError: Invalid reference distance or heading angle bounds:
                 heading angle at sRef {ARef} is outside the heading angle bounds
-                [ALower, AUpper]
-            IndexError: No coordinates within the bounds specified
+                [ALower, AUpper].
+            IndexError: No coordinates within the bounds specified.
         """
         # Automatically determine if the track is closed
         BClosedTrack = all(self.xyzCoords[-1] == self.xyzCoords[0])
@@ -324,16 +328,13 @@ class CoordinateArray:
 
         def __getCoordOnBound(BStart: bool) -> tuple[NDArrayFloat1D, float, float, float]:
             """
-            Calculates the coordinate on the bound limiting the start or finish
-            of the reduced coordinate array.
+            Internal function to calculate the coordinate on the bound limiting
+            the start or finish of the reduced coordinate array.
 
             If the track is closed or the bound lies within the coordinate
             array, uses linear interpolation. Otherwise, if the bound lies
             beyond the defined coordinate array, extrapolates using the first/
             last low-pass filtered heading angle.
-
-            Note that by definition, a coordinate is interpolated if it is on a
-            heading bound.
 
             Args:
                 BStart: Whether the coordinate on the bound to calculate is at
@@ -396,7 +397,7 @@ class CoordinateArray:
                 AUpperWrapped = utils.wrap(AUpper, AClosest - np.pi, AClosest + np.pi)
                 AFiltBound = ALowerWrapped if abs(AClosest - ALowerWrapped) < abs(AClosest - AUpperWrapped) else AUpperWrapped
 
-                # Get the indexes surrounding this heading bound
+                # Get the indexes surrounding this heading bound - by definition, the coordinate on the heading bound is interpolated
                 if indsIndex == 0:
                     indLower = indsValid[indsIndex] - 1
                     indUpper = indsValid[indsIndex]
@@ -455,14 +456,12 @@ class CoordinateArray:
                 AHeadingsFilt[indWrap:] += AOffset
 
         # Return a new CoordinateArray instance initialised with its attributes provided
-        # Note that the BAllowNegativeInitAHeading flag has no effect when initialised with attributes provided as is the case here
-        # Also note that any consecutive duplicates will be removed during the initialisation of the new CoordinateArray instance
+        # Note that any consecutive duplicates will be removed during the initialisation of the new CoordinateArray instance
         return CoordinateArray(xyzCoords, False, sCoords, AHeadings, AHeadingsFilt)
 
 
 @dataclass
 class Event:
-
     """
     Event data, which is then stored in the corresponding Gate object.
 
@@ -602,14 +601,12 @@ class Gate:
                          reducedCoordArray: CoordinateArray,
                          key: str = '') -> tuple[float, float]:
         """
-        Calculate the gate intersection with the reduced CoordinateArray object
-        provided.
+        Calculate the gate intersection with a reduced CoordinateArray object.
 
-        Finds the distance from the gate xyMidpoint to the intersection point,
-        and the distance along the (original) CoordinateArray object of the
-        intersection.
-
-        Updates the relevant lLimitXY attribute for the key provided.
+        Finds the distance from the gate xyMidpoint to the closest intersection
+        point, and the distance along the (original) CoordinateArray object of
+        the intersection. Then updates the relevant lLimitXY attribute for the
+        key provided.
 
         Args:
             reducedCoordArray: Reduced CoordinateArray object for the local
@@ -634,9 +631,9 @@ class Gate:
         # Create a Shapely LineString from the reduced coordinate array
         lineCoordArray = shapely.LineString(reducedCoordArray.xyzCoords[:, :2])
 
-        # Find the geometry shared between the gate and the reduced coordinate array - note that as the gate is a straight line and lineCoordArray is
-        # a line, their shared geometry can only be Shapely Point or Shapely LineString objects, where the LineString objects must be straight lines
-        # defined by their start and finish coordinates (unless there is no intersection
+        # Find the geometry shared between the gate and the reduced coordinate array
+        # Note that as the gate is a straight line, the shared geometry with lineCoordArray can only be Shapely Point or Shapely LineString objects,
+        # where the LineString objects must be straight lines (unless there are no intersections)
         intersections = shapely.intersection(self.xyLine, lineCoordArray)
 
         # Check if there was an intersection
@@ -690,8 +687,9 @@ class Gate:
                     lIntersection = l
                     xyIntersection = xy
 
-            # Find the distance along the coordinate array of the closest intersection
-            sIntersection = reducedCoordArray.sCoords[0] + lineCoordArray.project(shapely.Point(xyIntersection))
+            # Find the distance along the reduced coordinate array of the closest intersection, and offset it by the distance at the start of the
+            # reduced CoordinateArray object to get the distance along the original CoordinateArray object
+            sIntersection = lineCoordArray.project(shapely.Point(xyIntersection)) + reducedCoordArray.sCoords[0]
 
         # Update the relevant lLimitXY attribute
         match key:
@@ -710,7 +708,7 @@ class Gate:
                      lLeft: float | None = None,
                      lRight: float | None = None) -> None:
         """
-        Updates the gate width attributes, then updates the gate line from those
+        Updates the gate width attributes, then creates a new gate line from the
         new width attributes.
 
         Args:
@@ -724,12 +722,12 @@ class Gate:
 
         Raises:
             ValueError 1: Cannot update gate widths: lLeft not specified but
-                default value cannot be used as lLimitLeftHard is None
+                default value cannot be used as lLimitLeftHard is None.
 
             ValueError 2: Cannot update gate widths: lRight not specified but
-                default value cannot be used as lLimitRightHard is None
+                default value cannot be used as lLimitRightHard is None.
         """
-        # Check if lLeft and lRight were not provided and set their default values
+        # Set default values for lLeft and lRight if not provided
         if lLeft is None:
             if self.lLimitLeftSoft is None or self.lLimitLeftHard is None:
                 raise ValueError("Cannot update gate widths: lLeft not specified but default value cannot be used "
@@ -754,25 +752,25 @@ class Gate:
         the left and right soft track limits.
 
         The resulting distances to the left and right soft track limits will be
-        equal. Also updates all the gate attributes with the new values (if they
-        exist).
+        equal. Also updates all the width and distance-to-limit gate attributes
+        with the new values (if they exist).
 
         Raises:
             ValueError: Cannot recalculate gate midpoint: lLimitLeftSoft and/or
-                lLimitRightSoft is None
+                lLimitRightSoft is None.
         """
         # Check that lLimitLeftSoft and lLimitRightSoft both exist
         if self.lLimitLeftSoft is None or self.lLimitRightSoft is None:
             raise ValueError("Cannot recalculate gate midpoint: lLimitLeftSoft and/or lLimitRightSoft is None")
 
-        # Calculate the distance to the right to shift the midpoint
+        # Calculate the distance to shift the midpoint (towards the right)
         lShiftRight = self.lLimitRightSoft - self.lLimitLeftSoft
 
-        # Calculate the shifted gate midpoint and update the attribute
+        # Calculate the shifted gate midpoint and update the xyMidpoint attribute
         xyVec = utils.rotateVectorHeading(np.array([lShiftRight, 0]), self.AHeading)
         self.xyMidpoint += xyVec
 
-        # Update the width and distance to limit attributes with the shifted midpoint
+        # Update the width and distance-to-limit attributes with the shifted midpoint
         self.lLeft += lShiftRight
         self.lRight -= lShiftRight
         self.lLimitLeftSoft += lShiftRight
@@ -782,17 +780,10 @@ class Gate:
         if self.lLimitRightHard is not None:
             self.lLimitRightHard -= lShiftRight
 
-        # Create the new gate line using the updated attributes
-        self.xyLine = self.__getGateLine()
-
 
 class Track:
     """
     Defines the track on which a trajectory can be created and optimised.
-
-    Has the functions calcTrackZ() and calcTrackNormal() to calculate the z
-    coordinate and [x, y, z] unit normal vector at a given [x, y] coordinate on
-    the track.
 
     Has methods:
         - calcTrackZ(xy, indGate, BReturnNaN)
@@ -811,40 +802,42 @@ class Track:
                  BClosedTrackOverride: bool | None = None,
                  BDebug: bool = False) -> None:
         """
-        Initialises the Track object, by loading the Track object from a .pkl
-        file in the specified folder, or if that fails, by generating the track
-        from the .csv and .json files in that folder.
+        Initialises the Track object.
 
-        Files that will be parsed to CoordinateArray objects must:
-            - Be a .csv file in the format where each row is a coordinate in
+        Tries to load the Track object from the pkl file in the folder specified
+        by trackPath. If that fails, falls back to generating the track from the
+        csv and JSON files in that folder.
+
+        Files that will be parsed to CoordinateArray objects must be:
+            -   A .csv file in the format where each row is a coordinate in
                 the form x,y,z.
-            - Be named:
-                - As one of the track limits 'xyzLimitLeftSoft.csv',
-                    'xyzLimitRightSoft.csv', 'xyzLimitLeftHard.csv', or
-                    'xyzLimitRightHard.csv'.
-                - Starting with the prefix 'xyzExtra'.
+            -   Named as one of the track limits 'xyzLimitLeftSoft.csv',
+                'xyzLimitRightSoft.csv', 'xyzLimitLeftHard.csv', or
+                'xyzLimitRightHard.csv'.
+            -   Alternatively, named starting with the prefix 'xyzExtra'.
 
-        The trackPath folder must contain:
+        The trackPath folder must contain the csv files:
             - xyzLimitLeftSoft.csv and/or xyzLimitLeftHard.csv.
             - xyzLimitRightSoft.csv and/or xyzLimitRightHard.csv.
 
         Files that will be parsed to event Gate objects must:
-            - Be a .json file with the prefix 'eventData'.
-            - Contain the keys:
-                - type: String identifying the event type
-                - xyStartLeft: Left coordinate of the event start gate, as a
+            -   Be a .json file with the prefix 'eventData'.
+            -   Contain the keys:
+
+                -   'type': String identifying the event type
+                -   'xyStartLeft': Left coordinate of the event start gate, as a
                     list of floats in the form [xStartLeft, yStartLeft]. May be
                     omitted if the event type is 'StartFinish'.
-                - xyStartRight: Right coordinate of the event start gate, as a
+                -   'xyStartRight': Right coordinate of the event start gate, as a
                     list of floats in the form [xStartRight, yStartRight]. May
                     be omitted if the event type is 'StartFinish'.
-                - xyFinishLeft: Left coordinate of the event finish gate, as a
+                -   'xyFinishLeft': Left coordinate of the event finish gate, as a
                     list of floats in the form [xFinishLeft, yFinishLeft]. May
                     be omitted if the event type is 'StartFinish'.
-                - xyFinishRight: Right coordinate of the event finish gate, as a
-                    list of floats in the form [xFinishRight, yFinishRight].
+                -   'xyFinishRight': Right coordinate of the event finish gate, as
+                    a list of floats in the form [xFinishRight, yFinishRight].
                     May be omitted if the event type is 'StartFinish'.
-                - properties: Dictionary of properties for the event, only
+                -   'properties': Dictionary of properties for the event, only
                     required if the event requires properties to be defined.
 
         Args:
@@ -905,7 +898,85 @@ class Track:
         Internal method to initialise the Track object by generating the track
         from the .csv and .json files in the specified path.
 
-        TODO: Calculation logic
+        By definition, consecutive track gates are not allowed to intersect.
+        This influences the large part of the logic in the gate creation loop.
+
+        First parses the track files to a dictionary of CoordinateArray objects,
+        and another dictionary of lists of event Gates objects, by event type.
+        In the process, automatically detects and sets the BClosedTrack
+        attribute (unless overridden).
+
+        Then does the setup before the gate creation loop. The first gate is
+        created from the first coordinates of the soft track limits, and its
+        intersections with all the CoordinateArray objects are calculated, using
+        their corresponding reduced CoordinateArray objects. However, if this
+        first gate intersects with any event gates with a similar heading angle,
+        it is not used. The final gate (used for stopping gate creation) is also
+        created.
+
+        Next, enters the gate creation loop. This loop is exited once the event
+        gate to stop gate creation has been reached. In this loop:
+            -   The reduced CoordinateArray objects around the next gate are
+                found.
+            -   The gate placement is optimised first with a root-finding method
+                (for equal convergence/divergence of the track limits on either
+                side, and equal distances to the soft track limits on either
+                side). If the root-finding method fails, then the fallback
+                minimisation method is used (with the same broad objective of
+                having the gate point in the "forwards" direction with the
+                midpoint in the middle of the soft track limits).
+            -   From the optimised parameters of the candidate gate placement,
+                the candidate gate is created, its intersections with all the
+                reduced CoordinateArray objects are calculated, its width is
+                updated to follow the GATE_EXTEND_WIDTH_XX constants, and its
+                midpoint is recalculated.
+            -   The event gates contained in the track segment from the previous
+                gate to the candidate gate (which are within the heading angle
+                similarity threshold) are found, their intersections with all
+                the reduced CoordinateArray objects are calculated, their widths
+                are updated to follow the GATE_EXTEND_WIDTH_XX constants, and
+                their midpoints are recalculated.
+            -   The event gates contained in the track segment are sorted in
+                order of ascending distance of the projection of their midpoint
+                onto the line from the previous gate midpoint to the candidate
+                gate midpoint. If both the start and finish event gates are
+                contained in the track segment, they are ordered such that the
+                finish gate is before the start gate.
+            -   Checks if any of the event gates contained in the track segment
+                have the event to stop the gate creation loop. If so, sets the
+                flags to stop the gate creation loop.
+            -   Checks consecutive event gates intersect with each other but
+                don't share the same line. If so, raises an error.
+            -   Checks if the last gate in the gates list intersects with the
+                first event gate contained in the track segment. If so, removes
+                the last gate in the gates list until this is no longer the
+                case.
+            -   Checks if the last event gate contained by the track segment
+                intersects with the candidate gate. If so, marks the candidate
+                gate as invalid.
+            -   Checks if the candidate gate intersects with the last gate in
+                the gates list. If so, marks the candidate gate as invalid.
+            -   If the candidate gate is still valid after all the checks,
+                adds it to the track gates.
+            -   If the flag to stop the gate creation loop is true and the track
+                is closed, checks if the first gate intersects with the last
+                gate. If so, removes the last gate in the gates list until this
+                is no longer the case.
+
+        Once the gate creation loop has finished, postprocesses and validates
+        the gates.
+
+        Then creates the track mesh. A SciPy multivariate interpolator is
+        created for each gate, using all the coordinates between the previous
+        gate and the next gate, and the extrapolated coordinates of the gate
+        left and right coordinates.
+
+        Finally, saves the initialised Track object as a pkl file to the
+        trackPath folder, and saves a track plot to the same folder, showing:
+            -   All coordinate arrays, coloured by track limit side and type
+            -   All track gates, coloured by event type and labelled by index
+            -   All track gate intersections with the soft and hard track limits
+            -   Filled contours of the track elevation
 
         Args:
             trackPath: File path to the folder containing the .csv and .json
@@ -917,6 +988,20 @@ class Track:
                 track limit coordinate arrays.
             BDebug: Whether to show debug plots of the gate creation process
                 during track generation.
+
+        Raises:
+            ValueError1: Both methods for optimisation of new gate placement
+                failed, see track plot in {trackPath}.
+            ValueError2: Consecutive event gates intersect, see track plot in
+                {trackPath}. Possible fixes are spacing out the event gates
+                more, reducing GATE_EXTEND_WIDTH_SOFT or GATE_EXTEND_WIDTH_HARD,
+                increasing HEADING_ANGLE_THRESHOLD.
+            ValueError3: Track is not closed but there are event finish gates
+                before their start gates, see track plot in {trackPath}.
+            ValueError4: Gate creation stopped before all event gates were added,
+                see track plot in {trackPath}. Event gates not added are
+                {[f"{gates[i].event.name} (Start {gates[i].event.BStart})"
+                for i in indsBadGates]}.
         """
         def __getGateFromCoords(xyLeft: NDArrayFloat1D,
                                 xyRight: NDArrayFloat1D,
@@ -926,11 +1011,12 @@ class Track:
                                 lLimitLeftHard: float | None = None,
                                 lLimitRightHard: float | None = None) -> Gate:
             """
-            Initialise a Gate object from its left and right coordinates.
+            Internal function to initialise a Gate object from its left and
+            right coordinates.
 
-            Note that the heading angle generated may be in the wrong rotation
-            cycle from the desired heading angle. This attribute should be
-            checked and modified after the gate is returned.
+            The heading angle generated will be from -pi/4 to 7pi/4. This should
+            be checked and modified after the gate is returned to ensure that
+            the gate is in the correct rotation.
 
             Args:
                 xyLeft: Left coordinate of the gate, in the form [x, y].
@@ -961,20 +1047,53 @@ class Track:
         def __parseTrackFiles() -> tuple[dict[str, CoordinateArray], dict[str, list[Gate]]]:
             """
             Internal function to parse the files in the trackPath folder into
-            CoordinateArray and Gate objects.
+            CoordinateArray and Gate objects, and set the BClosedTrack
+            attribute.
 
             See the docstring for the Track object __init__() method for the
             required file structure within the trackPath folder.
 
+            Parses all csv files with file names matching one of:
+                -   'xyzLimitLeftSoft.csv'
+                -   'xyzLimitRightSoft.csv'
+                -   'xyzLimitLeftHard.csv'
+                -   'xyzLimitRightHard.csv'
+                -   File name starting with 'xyzExtra' and ending in '.csv'
+            into arrays of xyz coordinates. Uses fallbacks for the track limits
+            coordinates if not all are provided (uses soft track limits as hard
+            track limits if not provided, and vice versa). Determines if the
+            track is closed and sets the BClosedTrack attribute. Initialises
+            CoordinateArray objects from the arrays of xyz coordinates, and
+            makes sure that their initial heading angles are all in the same
+            rotation.
+
+            Parses all JSON files starting with 'eventData' to create the
+            corresponding event gates. Creates the start and finish gates if
+            they are not provided.
+
             Returns:
-                Tuple of (coordArraysDict, eventGatesDict):
+                Tuple of (coordArraysDict, eventGatesDict).
 
-                    coordArraysDict: Dictionary containing the CoordinateArray
-                        objects for all left/right soft/hard track limits, and
-                        any extra coordinate arrays provided.
+                coordArraysDict: Dictionary containing the CoordinateArray
+                    objects for all left/right soft/hard track limits, and any
+                    extra coordinate arrays provided.
 
-                    eventGatesDict: Dictionary containing lists of event Gate
-                        objects of each event type.
+                eventGatesDict: Dictionary containing lists of event Gate
+                    objects of each event type.
+
+            Raises:
+                ValueError: Event data file {entry.name} has an invalid event
+                    type {eventType}: valid event types are {validEventTypes}.
+                ValueError: Event data file {entry.name} does not have the key
+                    'type' required.
+                ValueError: Event data file {entry.name} does not have the
+                    {subKey.lower()} coordinate keys 'xyStartLeft' and/or
+                    'xyStartRight', and event type is '{eventType}', not
+                    'StartFinish'.
+                ValueError: {trackPath} must contain at least one of
+                    xyzLimit{subKey}Soft.csv or xyzLimit{subKey}Hard.csv.
+                ValueError: Event type '{eventType}' has {nStart} start gates
+                    but {nFinish} finish gates.
             """
             print("Parsing track files")
 
@@ -1004,7 +1123,7 @@ class Track:
                         if 'type' in dataKeys:
                             eventType = eventData['type']
                             if eventType not in validEventTypes:
-                                raise ValueError(f"Event data file {entry.name} has an invalid event type {eventType}: valid event types are "
+                                raise ValueError(f"Event data file {entry.name} has an invalid event type {eventType}: valid event types are\n"
                                                  f"{validEventTypes}")
                             eventName = 'StartFinish' if eventType == 'StartFinish' else entry.name[len(eventGatesFileNamePrefix) - 1:-5]
                         else:
@@ -1021,7 +1140,7 @@ class Track:
                                     eventGatesDict[eventType] = [eventGate]
                             elif eventType != 'StartFinish':
                                 raise ValueError(f"Event data file {entry.name} does not have the {subKey.lower()} coordinate keys 'xyStartLeft' "
-                                                 f"and/or 'xyStartRight', and event type is '{eventType}', not 'StartFinish'")
+                                                 f"and/or 'xyStartRight',\nand event type is '{eventType}', not 'StartFinish'")
 
             # Use fallbacks for left and right track limits coordinates if they don't exist, and automatically determine if the track is closed
             BClosedTrack = True
@@ -1097,7 +1216,7 @@ class Track:
                     else:
                         nFinish += 1
                 if nStart != nFinish:
-                    raise ValueError(f"Event type '{eventType}' has start gates but {nFinish} finish gates")
+                    raise ValueError(f"Event type '{eventType}' has {nStart} start gates but {nFinish} finish gates")
 
             print("Finished parsing track files")
 
@@ -1106,7 +1225,7 @@ class Track:
         def __getGateFromParams(params: NDArrayFloat1D,
                                 prevGate: Gate) -> Gate:
             """
-            Internal method to create a Gate object from the optimisation
+            Internal function to create a Gate object from the optimisation
             parameters.
 
             Args:
@@ -1138,7 +1257,7 @@ class Track:
                               reducedLimitLeftSoft: CoordinateArray,
                               reducedLimitRightSoft: CoordinateArray) -> NDArrayFloat1D:
             """
-            Internal method to get the objective function vector of the
+            Internal function to get the objective function vector of the
             candidate gate, for the root-finding gate placement optimisation
             method.
 
@@ -1188,7 +1307,7 @@ class Track:
                                   reducedLimitLeftSoft: CoordinateArray,
                                   reducedLimitRightSoft: CoordinateArray) -> float:
             """
-            Internal method to get the objective function value of the candidate
+            Internal function to get the objective function value of the candidate
             gate, for the fallback gate placement optimisation method.
 
             Args:
@@ -1228,6 +1347,14 @@ class Track:
             """
             Internal function to save a plot of the generated track to the
             trackPath folder, primarily for debugging.
+
+            The plot is saved to the trackPath folder, and contains:
+                -   All coordinate arrays, coloured by track limit side and type
+                -   All track gates, coloured by event type and labelled by
+                    index
+                -   All track gate intersections with the soft and hard track
+                    limits
+                -   Filled contours of the track elevation
 
             Args:
                 coordArraysDict: Dictionary containing the CoordinateArray
@@ -1450,10 +1577,18 @@ class Track:
         # Update the first gate's width to follow the GATE_WIDTH_EXTEND constants
         firstGate.updateWidths()
 
-        # Check that the first gate doesn't intersect with the start gate
-        if not firstGate.xyLine.intersects(eventGatesDict['StartFinish'][0].xyLine):
-            # First gate does not intersect with the start gate so it's valid, append the first gate to the gates list and append the distances along
-            # the coordinate arrays of its intersections with the coordinate arrays to the relevant lists in sIntersectionsDict
+        # Check that the first gate doesn't intersect with any event gates with heading angles within the heading angle threshold
+        BValidGate = True
+        for eventGatesList in eventGatesDict.values():
+            for eventGate in eventGatesList:
+                if (firstGate.xyLine.intersects(eventGate.xyLine)
+                        and abs(utils.wrap(firstGate.AHeading - eventGate.AHeading, -np.pi, np.pi)) < HEADING_ANGLE_THRESHOLD):
+                    BValidGate = False
+                    break
+
+        # If the first gate doesn't intersect with any event gates, it's valid, so append the first gate to the gates list and append the distances
+        # along the coordinate arrays of its intersections with the coordinate arrays to the relevant lists in sIntersectionsDict
+        if BValidGate:
             gates.append(firstGate)
             for key, s in sDictFirst.items():
                 sIntersectionsDict[key].append(s)
@@ -1535,7 +1670,7 @@ class Track:
                     __saveTrackPlot(coordArraysDict, gates, indsBadGates)
                     raise ValueError(f"Both methods for optimisation of new gate placement failed, see track plot in {trackPath}")
 
-            # Debug plot reduced coordinate arrays, all gates in the gates list, and the candidate gate
+            # Debug plot of reduced coordinate arrays, all gates in the gates list, and the candidate gate
             if BDebug:
                 plt.clf()
                 for key, coordArray in reducedCoordArraysDict.items():
@@ -1577,42 +1712,41 @@ class Track:
             # Find the event gates contained in the track segment from the previous gate to this candidate gate
             xyLinePrevToCandidateMidpoint = shapely.LineString([prevGate.xyMidpoint, candidateGate.xyMidpoint])
             AHeadingAvg = (prevGate.AHeading + candidateGate.AHeading) / 2
-            eventGatesFlat = []
-            for eventGatesList in eventGatesDict.values():
-                for eventGate in eventGatesList:
-                    eventGatesFlat.append(eventGate)
             eventGatesContained: list[Gate] = []
             sEventGatesContained: list[dict[str, float]] = []
-            for eventGate in eventGatesFlat:
-                # Calculate the heading angle difference compared to the average heading angle of the previous and candidate gates
-                AHeadingDiff = utils.wrap(eventGate.AHeading - AHeadingAvg, -np.pi, np.pi)
+            for eventGatesList in eventGatesDict.values():
+                for eventGate in eventGatesList:
+                    # Calculate the heading angle difference compared to the average heading angle of the previous and candidate gates
+                    AHeadingDiff = utils.wrap(eventGate.AHeading - AHeadingAvg, -np.pi, np.pi)
 
-                # Check if the line from the previous gate midpoint to the candidate gate midpoint intersects with the event gate, and if the event
-                # gate has a similar heading angle to the average heading angle of the previous and candidate gate, and that the previous gate is not
-                # the first gate if the event gate is a GateCreation type
-                if (xyLinePrevToCandidateMidpoint.intersects(eventGate.xyLine)
-                        and abs(AHeadingDiff) <= HEADING_ANGLE_THRESHOLD
-                        and not (prevGate == firstGate and eventGate.event.type == 'GateCreation')):
-                    # Event gate is contained within the track segment from the previous gate to the candidate gate, append it to the
-                    # eventGatesContained list
-                    print(f"\tEvent gate {eventGate.event.name} of type {eventGate.event.type} ({"Start" if eventGate.event.BStart else "Finish"}) "
-                          f"contained in the track segment between the previous and current gates")
-                    eventGatesContained.append(eventGate)
+                    # Check if the line from the previous gate midpoint to the candidate gate midpoint intersects with the event gate, and if the
+                    # event gate has a similar heading angle to the average heading angle of the previous and candidate gate, and that the previous
+                    # gate is not the first gate if the event gate is a GateCreation type
+                    if (xyLinePrevToCandidateMidpoint.intersects(eventGate.xyLine)
+                            and abs(AHeadingDiff) <= HEADING_ANGLE_THRESHOLD
+                            and not (prevGate == firstGate and eventGate.event.type == 'GateCreation')):
+                        # Event gate is contained within the track segment from the previous gate to the candidate gate, append it to the
+                        # eventGatesContained list
+                        print(f"\tEvent gate {eventGate.event.name} of type {eventGate.event.type} "
+                              f"({"Start" if eventGate.event.BStart else "Finish"})\n"
+                              f"contained in the track segment between the previous and current gates")
+                        eventGatesContained.append(eventGate)
 
-                    # Update the event gate width to the maximum gate width to calculate intersections with the coordinate arrays
-                    eventGate.updateWidths(GATE_MAX_WIDTH / 2, GATE_MAX_WIDTH / 2)
+                        # Update the event gate width to the maximum gate width to calculate intersections with the coordinate arrays
+                        eventGate.updateWidths(GATE_MAX_WIDTH / 2, GATE_MAX_WIDTH / 2)
 
-                    # Calculate the intersections with the coordinate arrays and store the distances along the coordinate arrays of the intersections
-                    sEventGatesContained.append({})
-                    for key, reducedCoordArray in reducedCoordArraysDict.items():
-                        _, sEventGatesContained[-1][key] = eventGate.calcIntersection(reducedCoordArraysDict[key], key)
+                        # Calculate the intersections with the coordinate arrays and store the distances along the coordinate arrays of the
+                        # intersections
+                        sEventGatesContained.append({})
+                        for key, reducedCoordArray in reducedCoordArraysDict.items():
+                            _, sEventGatesContained[-1][key] = eventGate.calcIntersection(reducedCoordArraysDict[key], key)
 
-                    # Align the event gate's heading angle to be within pi of the average heading angle of the previous and candidate gates
-                    eventGate.AHeading = utils.wrap(eventGate.AHeading, AHeadingAvg - np.pi, AHeadingAvg + np.pi)
+                        # Align the event gate's heading angle to be within pi of the average heading angle of the previous and candidate gates
+                        eventGate.AHeading = utils.wrap(eventGate.AHeading, AHeadingAvg - np.pi, AHeadingAvg + np.pi)
 
-                    # Update the event gate width to follow the GATE_EXTEND_WIDTH_XX constants and recalculate the event gate midpoint
-                    eventGate.updateWidths()
-                    eventGate.recalcMidpoint()
+                        # Update the event gate width to follow the GATE_EXTEND_WIDTH_XX constants and recalculate the event gate midpoint
+                        eventGate.updateWidths()
+                        eventGate.recalcMidpoint()
 
             # Sort the eventGatesContained and sEventGatesContained lists in order of ascending distance of the projection of their midpoint onto the
             # line from the previous gate midpoint to the candidate gate midpoint
@@ -1633,7 +1767,8 @@ class Track:
                     indFinish = i
 
                 if indStart is not None and indFinish is not None:
-                    # Both start and finish gates are in the eventGatesContained list, swap them in both eventGatesContained and sEventGatesContained
+                    # Both start and finish gates are in the eventGatesContained list, order them such that the finish gate is before the start gate,
+                    # in both eventGatesContained and sEventGatesContained
                     eventGatesContained[indStart], eventGatesContained[indFinish] = eventGatesContained[indFinish], eventGatesContained[indStart]
                     sEventGatesContained[indStart], sEventGatesContained[indFinish] = sEventGatesContained[indFinish], sEventGatesContained[indStart]
                     break
@@ -1645,7 +1780,7 @@ class Track:
                 # Check if any of the event gates contained in the track segment have the event to finish the gate creation loop
                 BStopEventGates = [eventGate.event.type == 'GateCreation' and not eventGate.event.BStart for eventGate in eventGatesContained]
                 if any(BStopEventGates):
-                    # Finish gate creation event gate is contained by the track segment, set the flags to mark the candidate gate as invalid and stop
+                    # Finish gate creation event gate is contained in the track segment, set the flags to mark the candidate gate as invalid and stop
                     # gate creation
                     BValidGate = False
                     BStopGateCreation = True
@@ -1679,40 +1814,39 @@ class Track:
                         for eventGate in eventGatesContained:
                             gates.append(eventGate)
                         __saveTrackPlot(coordArraysDict, gates, indsBadGates)
-                        raise ValueError(f"Consecutive event gates intersect, see track plot in {trackPath}: possible fixes are spacing out the "
-                                         f"event gates more, reducing GATE_EXTEND_WIDTH_SOFT or GATE_EXTEND_WIDTH_HARD, "
+                        raise ValueError(f"Consecutive event gates intersect, see track plot in {trackPath}:\npossible fixes are spacing out the "
+                                         f"event gates more,\nreducing GATE_EXTEND_WIDTH_SOFT or GATE_EXTEND_WIDTH_HARD,\n"
                                          f"increasing HEADING_ANGLE_THRESHOLD")
 
-                # Check if the first event gate contained by the track segment intersects with the last gate in the gates list, and if so, remove the
+                # Check if the first event gate contained in the track segment intersects with the last gate in the gates list, and if so, remove the
                 # last gate in the gates list and repeat until the first event gate no longer intersects with the last gate in the gates list
                 BIntersects = True
                 while BIntersects and len(gates) > 0:
-                    # Check if the first event gate contained by the track segment intersects with the last gate in the gates list
-                    # but doesn't the same line
+                    # Check if the first event gate contained in the track segment intersects with the last gate in the gates list,
+                    # but doesn't share the same line
                     if (eventGatesContained[0].xyLine.intersects(gates[-1].xyLine)
                             and (np.linalg.norm(eventGatesContained[0].xyMidpoint - gates[-1].xyMidpoint)
                                  + abs(eventGatesContained[0].AHeading - gates[-1].AHeading) > GATE_SIMILARITY_THRESHOLD)):
                         # Intersection found and gates don't share the same line
                         BIntersects = True
-                        if gates[-1].event is None:
-                            # Last gate in the gates list is not an event gate, remove it from the gates list and remove the last elements from all
-                            # the lists in sIntersectionsDict
-                            del gates[-1]
-                            for sIntersections in sIntersectionsDict.values():
-                                del sIntersections[-1]
-                        else:
+                        if gates[-1].event is not None:
                             # Last gate in the gates list is an event gate
                             gates.append(eventGatesContained[0])
                             indsBadGates = [-2, -1]
                             __saveTrackPlot(coordArraysDict, gates, indsBadGates)
-                            raise ValueError(f"Consecutive event gates intersect, see track plot in {trackPath}: possible fixes are spacing out the "
-                                         f"event gates more, reducing GATE_EXTEND_WIDTH_SOFT or GATE_EXTEND_WIDTH_HARD, "
-                                         f"increasing HEADING_ANGLE_THRESHOLD")
+                            raise ValueError(f"Consecutive event gates intersect, see track plot in {trackPath}:\npossible fixes are spacing out the "
+                                             f"event gates more,\nreducing GATE_EXTEND_WIDTH_SOFT or GATE_EXTEND_WIDTH_HARD,\n"
+                                             f"increasing HEADING_ANGLE_THRESHOLD")
+                        # Last gate in the gates list is not an event gate, remove it from the gates list and remove the last elements from all the
+                        # lists in sIntersectionsDict
+                        del gates[-1]
+                        for sIntersections in sIntersectionsDict.values():
+                            del sIntersections[-1]
                     else:
                         # No intersection found
                         BIntersects = False
 
-                # Check if the last event gate contained by the track segment intersects with the candidate gate
+                # Check if the last event gate contained in the track segment intersects with the candidate gate
                 if eventGatesContained[-1].xyLine.intersects(candidateGate.xyLine):
                     # Intersection found, mark the candidate gate as invalid
                     print(f"\tGate {len(gates) + 1} invalid (intersects with event gate)")
@@ -1741,6 +1875,36 @@ class Track:
                     sIntersectionsDict[key].append(sCandidateDict[key])
                 print(f"\tGate {len(gates) - len(eventGatesContained)} satisfied all checks")
 
+            # If the gate creation finish gate has been reached and the track is closed, check if the first gate intersects with the last gate in the
+            # gates list, and if so, remove the last gate in the gates list and repeat until the first gate no longer intersects with the last gate
+            # in the gates list
+            if BStopGateCreation and self.BClosedTrack:
+                BIntersects = True
+                while BIntersects and len(gates) > 0:
+                    # Check if the first gate in the gates list intersects with the last gate in the gates list, but doesn't the same line
+                    if (gates[0].xyLine.intersects(gates[-1].xyLine)
+                            and (np.linalg.norm(gates[0].xyMidpoint - gates[-1].xyMidpoint)
+                                 + abs(gates[0].AHeading - gates[-1].AHeading) > GATE_SIMILARITY_THRESHOLD)):
+                        # Intersection found and gates don't share the same line
+                        BIntersects = True
+                        if gates[-1].event is not None:
+                            if gates[-1].event.type != 'GateCreation':
+                                # Last gate in the gates list is an event gate
+                                gates.append(eventGatesContained[0])
+                                indsBadGates = [-2, -1]
+                                __saveTrackPlot(coordArraysDict, gates, indsBadGates)
+                                raise ValueError(f"Consecutive event gates intersect, see track plot in {trackPath}:\npossible fixes are spacing out "
+                                                 f"the event gates more,\nreducing GATE_EXTEND_WIDTH_SOFT or GATE_EXTEND_WIDTH_HARD,\n"
+                                                 f"increasing HEADING_ANGLE_THRESHOLD")
+                        # Last gate in the gates list is not an event gate (or it's the event gate to stop gate creation), remove it from the gates
+                        # list and remove the last elements from all the lists in sIntersectionsDict
+                        del gates[-1]
+                        for sIntersections in sIntersectionsDict.values():
+                            del sIntersections[-1]
+                    else:
+                        # No intersection found
+                        BIntersects = False
+
             # Update prevGate to be the candidate gate,
             # and sDictPrev to be the candidate gate's distances along the coordinate arrays of its intersections with the coordinate arrays
             prevGate = candidateGate
@@ -1751,16 +1915,13 @@ class Track:
 
         ## Postprocessing and validation
         print("Validating and postprocessing the gates")
-        # Remove the first or last gate in the gates list if they have the event attribute with the GateCreation type
+        # Remove the event of the first/last gate in the gates list if they have the event attribute with the GateCreation type
         for i in (0, -1):
             if gates[i].event is not None:
                 if gates[i].event.type == 'GateCreation':
-                    del gates[i]
-                    for sIntersections in sIntersectionsDict.values():
-                        del sIntersections[i]
+                    gates[i].event = None
 
         # Set the width to the hard track limits to at least the width of the soft track limits (and add the fallbacks in case either weren't set)
-        # Also make sure that the gate heading angles are
         for gate in gates:
             # Left track limit widths
             if gate.lLimitLeftSoft is not None and gate.lLimitLeftHard is not None:
@@ -1790,14 +1951,19 @@ class Track:
                     indsEventGatesDict[gate.event.name][1] = i
 
         if self.BClosedTrack:
-            # Track is closed, roll the order of the gates so that the finish gate is the last index in the lists,
-            # then make sure that the finish gate heading angle is consistent with the new 2nd last gate
+            # Track is closed, roll the order of the gates so that the finish gate is the last index in the lists
             shift = indsEventGatesDict['StartFinish'][1] + 1
+
+            # First make sure that all the gates that will be rolled have consistent heading angles to avoid discontinuities
+            AOffset = round((gates[-1].AHeading - gates[0].AHeading) / (2 * np.pi)) * (2 * np.pi)
+            for gate in gates[shift:]:
+                gate.AHeading -= AOffset
+
+            # Roll the order of the gates, and roll the order of the lists of the gate's distances along the coordinate arrays of its intersections
             gates = gates[shift:] + gates[:shift]
-            gates[-1].AHeading = utils.wrap(gates[-1].AHeading, gates[-2].AHeading - np.pi, gates[-2].AHeading + np.pi)
-            # Also roll the order of the lists of the gate's distances along the coordinate arrays of its intersections with the coordinate arrays
             for key, s in sIntersectionsDict.items():
                 sIntersectionsDict[key] = s[shift:] + s[:shift]
+
         else:
             # Track is not closed, check if any event start gates are after their finish gate
             indsBadGates = []
@@ -1806,7 +1972,7 @@ class Track:
                     indsBadGates.append(indsEventGates)
             if indsBadGates:
                 __saveTrackPlot(coordArraysDict, gates, indsBadGates)
-                raise ValueError(f"Track is not closed but there are event finish gates before their start gates, see track plot in {trackPath}")
+                raise ValueError(f"Track is not closed but there are event finish gates before their start gates,\nsee track plot in {trackPath}")
 
         # Check if there are any remaining event gates that haven't been included in the track
         if any(eventGatesDict.values()):
@@ -1817,7 +1983,7 @@ class Track:
                     gates.append(eventGate)
                     indsBadGates.append(len(gates))
             __saveTrackPlot(coordArraysDict, gates, indsBadGates)
-            raise ValueError(f"Gate creation stopped before all event gates were added, see track plot in {trackPath}: event gates not added are "
+            raise ValueError(f"Gate creation stopped before all event gates were added, see track plot in {trackPath}:\nevent gates not added are "
                              f"{[f"{gates[i].event.name} (Start: {gates[i].event.BStart})\n" for i in indsBadGates]}")
 
         # Set the gates attribute
@@ -1846,30 +2012,14 @@ class Track:
             xyzGatesLeft[i][2] = utils.linearInterpExtrap(-gate.lLeft, xp, fp)
             xyzGatesRight[i][2] = utils.linearInterpExtrap(gate.lRight, xp, fp)
 
-        # Find unused keys in coordArraysDict
-        keyGateLeft = 1
-        while f'Gate Left {keyGateLeft}' in coordArraysDict.keys():
-            keyGateLeft += 1
-        keyGateLeft = f'Gate Left {keyGateLeft}'
-        keyGateRight = 1
-        while f'Gate Right {keyGateRight}' in coordArraysDict.keys():
-            keyGateRight += 1
-        keyGateRight = f'Gate Right {keyGateRight}'
-
-        # Create CoordinateArray objects from the extrapolated gate left and right coordinates, and add them to coordinateArraysDict - note that the
-        # heading angles of these coordinate arrays does not matter
-        coordArraysDict[keyGateLeft] = CoordinateArray(xyzGatesLeft, self.BClosedTrack)
-        coordArraysDict[keyGateRight] = CoordinateArray(xyzGatesRight, self.BClosedTrack)
-
         # Create the track mesh, which is an array Scipy multivariate interpolators local to the area around their index's gate
         self.mesh = np.empty(nGates, dtype=scipy.interpolate.LinearNDInterpolator)
         for i, gate in enumerate(self.gates):
             # Create an array that will contain all the [x, y, z] coordinates local to the area around the gate
-            xyzCoords = np.array([coordArraysDict[keyGateLeft].xyzCoords[i],
-                                  coordArraysDict[keyGateRight].xyzCoords[i]])
+            xyzCoords = np.array([xyzGatesLeft[i], xyzGatesRight[i]])
 
             # Find the indexes corresponding to the previous and next gate with a different midpoint to the current gate, and add all the left and
-            # right [x, y, y] coordinates of the gates contained between them (inclusive)
+            # right [x, y, z] coordinates of the gates contained between them (inclusive)
             iPrev = i
             BFoundPrev = False
             while not BFoundPrev:
@@ -1879,7 +2029,7 @@ class Track:
                     else:
                         break   # Reached the start of the track
                 iPrev -= 1
-                xyzCoords = np.vstack((xyzCoords, coordArraysDict[keyGateLeft].xyzCoords[iPrev], coordArraysDict[keyGateRight].xyzCoords[iPrev]))
+                xyzCoords = np.vstack((xyzCoords, xyzGatesLeft[iPrev], xyzGatesRight[iPrev]))
                 if all(self.gates[iPrev].xyMidpoint != gate.xyMidpoint):
                     BFoundPrev = True
             iNext = i
@@ -1891,13 +2041,12 @@ class Track:
                     else:
                         break   # Reached the end of the track
                 iNext += 1
-                xyzCoords = np.vstack((xyzCoords, coordArraysDict[keyGateLeft].xyzCoords[iNext], coordArraysDict[keyGateRight].xyzCoords[iNext]))
+                xyzCoords = np.vstack((xyzCoords, xyzGatesLeft[iNext], xyzGatesRight[iNext]))
                 if all(self.gates[iNext].xyMidpoint != gate.xyMidpoint):
                     BFoundNext = True
 
-            # Get the [x, y, z] coordinates of all the reduced coordinate arrays (reduced to be between the previous and next gates), except for the
-            # 2 new coordinate arrays from the left/right coordinates of the gates that were added above
-            for key in sIntersectionsDict.keys():
+            # Get the [x, y, z] coordinates of all the reduced coordinate arrays (reduced to be between the previous and next gates)
+            for key in coordArraysDict.keys():
                 coordArray = coordArraysDict[key]
                 sRef = sIntersectionsDict[key][i]
                 sLower = sIntersectionsDict[key][iPrev]
@@ -1984,29 +2133,29 @@ class Track:
         return z
 
     def getTrackNormal(self,
-                        xy_xyz: list[float] | NDArrayFloat1D,
-                        indGate: int) -> NDArrayFloat1D:
+                       xy_xyz: list[float] | NDArrayFloat1D,
+                       indGate: int,
+                       nPoints: int = 5) -> NDArrayFloat1D:
         """
-        Calculates the normal vector to the track at the specified [x, y] or
-        [x, y, z] coordinate from forward differencing of the z coordinate.
+        Approximates the normal vector to the track at the specified [x, y] or
+        [x, y, z] coordinate by the average cross product of the vectors to
+        nPoints coordinates around the specified coordinate.
 
         If xy_xyz is in the form [x, y, z], then the z coordinate will be used
         as the unperturbed track z coordinate (i.e. skipping the calculation).
 
-        Note that forward differencing is used as the SciPy multivariate
-        interpolators don't seem to return their gradients. If the forward
-        differencing in any direction gets a NaN z coordinate, will use
-        backwards differencing for that direction.
-
-        TODO: Use more points to calculate the track normal to approximate the
-            average normal in the circle of radius PERTURB_DISTANCE - maybe 9
-            points (centre, axis-aligned cross, diagonal cross)
+        Note that this approximation is used as the SciPy multivariate
+        interpolators don't seem to return their gradients.
 
         Args:
             xy_xyz: Coordinate to calculate the track normal vector at, in the
                 form [x, y] or [x, y, z].
             indGate: Index of the closest/most recent gate. This determines
                 which local track region the xy coordinate is in.
+            nPoints: Number of points (perturbed vectors) to use to approximate
+                the track normal. Must be 3 or greater. Higher values give more
+                robust and potentially more accurate approximations, but at the
+                cost of increased compute time.
 
         Returns:
             Upwards-facing normal vector to the track at the specified
@@ -2014,10 +2163,8 @@ class Track:
             is outside the interpolation region of the track mesh, returns the
             normal pointing directly upwards [0, 0, 1].
         """
-        direction = 1
-
         # Get unperturbed [x, y] and z coordinates
-        if len(xy_xyz) < 3:
+        if len(xy_xyz) == 2:
             xy = np.array(xy_xyz)
             z = self.getTrackZ(xy_xyz, indGate, True)
         else:
@@ -2031,34 +2178,56 @@ class Track:
             # Unperturbed z coordinate is outside the interpolation region of the track mesh, return failed track normal
             return np.array([0, 0, 1])
 
-        # Calculate coordinate perturbed in the x direction
-        xyPerturbX = xy + np.array([PERTURB_DISTANCE, 0])
-        zPerturbX = self.getTrackZ(xyPerturbX, indGate, True)
-        if np.isnan(zPerturbX):
-            # Forward-perturbed coordinate in the x direction is outside the interpolation region of the track mesh, try backwards-perturb
-            direction *= -1
-            xyPerturbX = xy - np.array([PERTURB_DISTANCE, 0])
-            zPerturbX = self.getTrackZ(xyPerturbX, indGate, True)
-            if np.isnan(zPerturbX):
-                # Backwards-perturbed coordinate in the x direction is also outside the interpolation region, return failed track normal
-                return np.array([0, 0, 1])
-        xyzPerturbX = np.append(xyPerturbX, zPerturbX)
+        # Calculate perturb vectors, as a 2D list containing lists of the vectors from the specified coordinate to the perturbed coordinate in each
+        # direction, where each coordinate is a NumPy array in the form [x, y, z]
+        # If nPoints is even, there will be 2 coordinates per direction, otherwise there will be only 1 coordinate per direction - however this
+        # structure is used to ensure that cross-products are only taken between vectors with different directions
+        xyzPerturbs = []
+        if nPoints % 2 == 0:
+            # Even number of points, each perturb vector will have a corresponding perturb vector in the opposite direction
+            nPoints = int(nPoints / 2)
+            APerturbs = np.linspace(0, np.pi * (1 - (1 / nPoints)), nPoints)
+            for A in APerturbs:
+                xyPerturb = utils.rotateVectorHeading([0, PERTURB_DISTANCE], A)
+                xyzList = []
+                for direction in (1, -1):
+                    zPerturb = self.getTrackZ(xy + (xyPerturb * direction), indGate, BReturnNaN=True)
+                    if not np.isnan(zPerturb):
+                        xyzList.append(np.append(xyPerturb * direction, zPerturb - z))
+                if len(xyzList) > 0:
+                    xyzPerturbs.append(xyzList)
+        else:
+            APerturbs = np.linspace(0, 2 * np.pi * (1 - (1 / nPoints)), nPoints)
+            for A in APerturbs:
+                xyPerturb = utils.rotateVectorHeading([0, PERTURB_DISTANCE], A)
+                zPerturb = self.getTrackZ(xy + xyPerturb, indGate, BReturnNaN=True)
+                if not np.isnan(zPerturb):
+                    xyzPerturbs.append([np.append(xyPerturb, zPerturb - z)])
 
-        # Calculate coordinate perturbed in the y direction
-        xyPerturbY = xy + np.array([0, PERTURB_DISTANCE])
-        zPerturbY = self.getTrackZ(xyPerturbY, indGate, True)
-        if np.isnan(zPerturbX):
-            # Forward-perturbed coordinate in the y direction is outside the interpolation region of the track mesh, try backwards-perturb
-            direction *= -1
-            xyPerturbY = xy - np.array([0, PERTURB_DISTANCE])
-            zPerturbY = self.getTrackZ(xyPerturbY, indGate, True)
-            if np.isnan(zPerturbY):
-                # Backwards-perturbed coordinate in the y direction is also outside the interpolation region, return failed track normal
-                return np.array([0, 0, 1])
-        xyzPerturbY = np.append(xyPerturbY, zPerturbY)
+        # If there are less than 2 perturbed directions with valid z coordinates, a cross product normal cannot be calculated,
+        # so return the failed track normal
+        if len(xyzPerturbs) < 2:
+            return np.array([0, 0, 1])
 
-        # Calculate the track normal as the (scaled) cross product of the vectors from the coordinate to the 2 perturbed coordinates
-        xyzTrackNormal = np.cross(xyzPerturbX - xyz, xyzPerturbY - xyz)
-        xyzTrackNormal /= np.linalg.norm(xyzTrackNormal) * direction
+        # Calculate cross products for every combination of vectors from the specified coordinate to the perturbed coordinates, scaling them such that
+        # their z components are always positive and their magnitudes are 1
+        xyzCrossProducts = []
+        while len(xyzPerturbs) > 1:
+            mainPerturbDirection = xyzPerturbs.pop()
+            for xyzMainPerturb in mainPerturbDirection:
+                for perturbDirection in xyzPerturbs:
+                    for xyzPerturb in perturbDirection:
+                        xyzCrossProduct = np.cross(xyzMainPerturb, xyzPerturb)
+                        xyzCrossProduct *= np.sign(xyzCrossProduct[2]) / np.linalg.norm(xyzCrossProduct)
+                        xyzCrossProducts.append(xyzCrossProduct)
+        xyzCrossProducts = np.array(xyzCrossProducts)
+
+        # Calculate the average cross product vector
+        xyzTrackNormal = np.empty(3)
+        for i in range(3):
+            xyzTrackNormal[i] = np.mean(xyzCrossProducts[:, i])
+
+        # Scale the track normal to a magnitude of 1
+        xyzTrackNormal /= np.linalg.norm(xyzTrackNormal)
 
         return xyzTrackNormal

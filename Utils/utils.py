@@ -251,7 +251,7 @@ def removeConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, ...], np.
     return np.array(arr)[getIndsWithoutConsecutiveDuplicates(arr, axis)]
 
 
-def rotateVectorHeading(xy_xyz: NDArrayFloat1D,
+def rotateVectorHeading(xy_xyz: list[float] | NDArrayFloat1D,
                         theta: float) -> NDArrayFloat1D:
     """
     Rotates the vector clockwise in the 2D plane [x, y] by theta radians.
