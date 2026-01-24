@@ -10,7 +10,6 @@ import os
 import json
 import pickle as pkl
 from typing import Literal
-from dataclasses import dataclass
 
 # External libraries
 import scipy
@@ -19,7 +18,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Project python modules
-from Utils.typeAliases import Any, NDArrayFloat1D, NDArrayFloat2D, NDArrayInt1D
+from Utils.typeAliases import Any, NDArrayFloat1D, NDArrayFloat2D
 import Utils.utils as utils
 
 # Filename constants
@@ -35,8 +34,10 @@ LP_FILT_SPATIAL_FREQ = 0.01                     # Low-pass cutoff spatial freque
 LP_FILT_ORDER = 1                               # Order of the low-pass filter
 
 # Event constants
-CUSTOM_EVENT_TYPES = Literal['TODO']            # List of valid event types for custom events TODO: Implement custom events and add them here
-INTERNAL_EVENT_TYPES = Literal['GateCreation',  # Valid event types for internal events
+CUSTOM_EVENT_TYPES = Literal['Auxiliary',       # List of valid event types for custom events TODO: Implement custom events and add them here
+                             'TODO']
+INTERNAL_EVENT_TYPES = Literal[None,            # Valid event types for internal events
+                               'GateCreation',
                                'StartFinish']
 
 # Gate constants
@@ -460,32 +461,65 @@ class CoordinateArray:
         return CoordinateArray(xyzCoords, False, sCoords, AHeadings, AHeadingsFilt)
 
 
-@dataclass
 class Event:
     """
     Event data, which is then stored in the corresponding Gate object.
 
+    The default initialisation of an Event object is the event used for
+    automatically generated "normal" track gates.
+
     Custom event types:
-        - TODO: Implement the custom event types (DRS, SLM, SpeedLimiter etc.)
+        - TODO: Implement the custom event types:
+            -   Auxiliary (to help with tight corners where automatically
+                generated gates may intersect and get skipped), does not require
+                the BStart argument
+            -   SpeedLimiter (with property 'speed')
+            -   DRS/SLM
 
     Internal event types:
         - StartFinish
         - GateCreation
 
     Attributes:
-        name: Name of the event gates pair. Note that for each event gate name,
-            there must be a start and finish gate.
-        type: Event type, see above for the valid event gate types.
+        eventType: Event type, see above for the valid event gate types. String
+            or None.
         BStart: Whether the gate object storing the event marks the start or
-            finish of the event.
+            finish of the event. Boolean or None.
         properties: Dictionary containing the properties specific to the event
             type required to completely define it. Empty if the event type does
-            not require any additional information to be defined.
+            not require any additional information to be defined. Dictionary.
     """
-    name: str
-    type: CUSTOM_EVENT_TYPES | INTERNAL_EVENT_TYPES
-    BStart: bool
-    properties: dict[str, Any]
+    def __init__(self,
+                 eventType: CUSTOM_EVENT_TYPES | INTERNAL_EVENT_TYPES = None,
+                 BStart: bool | None = None,
+                 properties: dict[str, Any] | None = None):
+        """
+        Initialises the Event object.
+
+        Args:
+            eventType: Event type, see above for the valid event gate types.
+            BStart: Whether the gate object storing the event marks the start or
+                finish of the event.
+            properties: Dictionary containing the properties specific to the
+                event.
+
+        Raises:
+            ValueError: Argument 'BStart' is None but event type '{eventType}'
+                requires a boolean 'BStart' attribute to be defined
+        """
+        # Validate the BStart argument for the event type
+        if eventType in ('Auxiliary', None):
+            eventType = None
+        else:
+            raise ValueError(f"Argument 'BStart' is None but event type '{eventType}' requires a boolean 'BStart' attribute to be defined")
+
+        # Validate the properties argument for the event type
+        # TODO: Need to implement custom event types that require properties first
+
+        # Set attributes
+        self.eventType = eventType
+        self.BStart = BStart
+        self.properties = properties if properties is not None else {}
 
 
 class Gate:
@@ -529,7 +563,7 @@ class Gate:
     def __init__(self,
                  xyMidpoint: NDArrayFloat1D,
                  AHeading: float,
-                 event: Event | None = None,
+                 event: Event = Event(),
                  lLeft: float = GATE_MAX_WIDTH / 2,
                  lRight: float = GATE_MAX_WIDTH / 2,
                  lLimitLeftSoft: float | None = None,
@@ -549,9 +583,7 @@ class Gate:
                 corresponds to positive y (north) and increasing clockwise. This
                 should align with the unwrapped heading angles of the
                 CoordinateArray objects.
-            event: Information about the event starting/ending at this gate. If
-                this is None, then this is a "regular" gate and does not define
-                an event start or finish location.
+            event: Information about the event starting/ending at this gate.
             lLeft: Width of the gate to the left of xyMidpoint.
             lRight: Width of the gate to the right of xyMidpoint.
             lLimitLeftSoft: Unsigned distance from xyMidpoint to the
@@ -790,11 +822,11 @@ class Track:
         - calcTrackNormal(xy_xyz, indGate)
 
     Attributes:
+        BClosedTrack: Whether the track forms a closed circuit. Boolean.
         gates: Track gates, with order corresponding to the forwards direction
             around the track. NumPy array of Gate objects.
         mesh: Interpolators for the local track z coordinate around each gate.
             NumPy array of SciPy multivariate interpolators.
-        BClosedTrack: Whether the track forms a closed circuit.
     """
     def __init__(self,
                  trackPath: str,
@@ -806,11 +838,11 @@ class Track:
 
         Tries to load the Track object from the pkl file in the folder specified
         by trackPath. If that fails, falls back to generating the track from the
-        csv and JSON files in that folder.
+        csv and tsv files in that folder.
 
         Files that will be parsed to CoordinateArray objects must be:
             -   A .csv file in the format where each row is a coordinate in
-                the form x,y,z.
+                the form x,y,z. This file should not have a header.
             -   Named as one of the track limits 'xyzLimitLeftSoft.csv',
                 'xyzLimitRightSoft.csv', 'xyzLimitLeftHard.csv', or
                 'xyzLimitRightHard.csv'.
@@ -820,25 +852,37 @@ class Track:
             - xyzLimitLeftSoft.csv and/or xyzLimitLeftHard.csv.
             - xyzLimitRightSoft.csv and/or xyzLimitRightHard.csv.
 
-        Files that will be parsed to event Gate objects must:
-            -   Be a .json file with the prefix 'eventData'.
-            -   Contain the keys:
+        The file to be parsed for event Gate objects must have the filename
+        'eventGates.tsv'. This is a file with tab separated values where each
+        line represents a different event gate. Each line must have the column
+        format: xLeft   yLeft   xRight  yRight  eventType   BStart  properties.
+        This file should not have a header.
 
-                -   'type': String identifying the event type
-                -   'xyStartLeft': Left coordinate of the event start gate, as a
-                    list of floats in the form [xStartLeft, yStartLeft]. May be
-                    omitted if the event type is 'StartFinish'.
-                -   'xyStartRight': Right coordinate of the event start gate, as a
-                    list of floats in the form [xStartRight, yStartRight]. May
-                    be omitted if the event type is 'StartFinish'.
-                -   'xyFinishLeft': Left coordinate of the event finish gate, as a
-                    list of floats in the form [xFinishLeft, yFinishLeft]. May
-                    be omitted if the event type is 'StartFinish'.
-                -   'xyFinishRight': Right coordinate of the event finish gate, as
-                    a list of floats in the form [xFinishRight, yFinishRight].
-                    May be omitted if the event type is 'StartFinish'.
-                -   'properties': Dictionary of properties for the event, only
-                    required if the event requires properties to be defined.
+        The data in each column of the eventGates.tsv file is:
+            -   xLeft: x coordinate of the left coordinate of the gate.
+            -   yLeft: y coordinate of the left coordinate of the gate.
+            -   xRight: x coordinate of the right coordinate of the gate.
+            -   yRight: y coordinate of the right coordinate of the gate.
+            -   eventType: String identifying the event type, see the Event
+                class for the allowed event types.
+            -   BStart: Boolean identifying whether the event gate marks the
+                start of the event. This can be given as the (case-insensitive)
+                string true/false, or as binary 1/0.
+            -   properties: Dictionary (parsed as JSON format) of properties for
+                the event, see the Event class for what properties must be
+                defined for each event type.
+
+        The 'properties' column is only required if the event type requires
+        properties to be defined.
+
+        If only the xLeft, yLeft, xRight and yRight columns are provided, the
+        gate is assumed to have the 'Auxiliary' event type. This event is used
+        to assist the gate creation process in tight corners or around regions
+        with complicated track limits.
+
+        Note that the 'eventGates.tsv' file is not required. If not provided,
+        it is assumed that there are no custom events, and that the start/finish
+        gates are at the start/finish of the soft track limits.
 
         Args:
             trackPath: File path to the folder containing the .csv and .json
@@ -886,9 +930,9 @@ class Track:
             trackPkl = pkl.load(pklFile)
 
         # Set all attributes from the attributes in the .pkl file
+        self.BClosedTrack = trackPkl.BClosedTrack
         self.gates = trackPkl.gates
         self.mesh = trackPkl.mesh
-        self.BClosedTrack = trackPkl.BClosedTrack
 
     def __initFromTrackGen(self,
                            trackPath: str,
@@ -1005,7 +1049,7 @@ class Track:
         """
         def __getGateFromCoords(xyLeft: NDArrayFloat1D,
                                 xyRight: NDArrayFloat1D,
-                                event: Event | None = None,
+                                event: Event = Event(),
                                 lLimitLeftSoft: float | None = None,
                                 lLimitRightSoft: float | None = None,
                                 lLimitLeftHard: float | None = None,
@@ -1022,8 +1066,8 @@ class Track:
                 xyLeft: Left coordinate of the gate, in the form [x, y].
                 xyRight: Right coordinate of the gate, in the form [x, y].
                 event: Information about the event starting/ending at this gate.
-                    If this is None, then this is a "regular" gate and does not
-                    define an event start or finish location.
+                    If this is not provided, then this is a "regular" gate and
+                    does not define an event start or finish location.
                 lLimitLeftSoft: Unsigned distance from xyMidpoint to the
                     intersection with the left soft track limit.
                 lLimitRightSoft: Unsigned distance from xyMidpoint to the
@@ -1044,7 +1088,7 @@ class Track:
             # Initialise gate
             return Gate(xyMidpoint, AHeading, event, lHalf, lHalf, lLimitLeftSoft, lLimitRightSoft, lLimitLeftHard, lLimitRightHard)
 
-        def __parseTrackFiles() -> tuple[dict[str, CoordinateArray], dict[str, list[Gate]]]:
+        def __parseTrackFiles() -> tuple[dict[str, CoordinateArray], list[Gate]]:
             """
             Internal function to parse the files in the trackPath folder into
             CoordinateArray and Gate objects, and set the BClosedTrack
@@ -1053,33 +1097,26 @@ class Track:
             See the docstring for the Track object __init__() method for the
             required file structure within the trackPath folder.
 
-            Parses all csv files with file names matching one of:
-                -   'xyzLimitLeftSoft.csv'
-                -   'xyzLimitRightSoft.csv'
-                -   'xyzLimitLeftHard.csv'
-                -   'xyzLimitRightHard.csv'
-                -   File name starting with 'xyzExtra' and ending in '.csv'
-            into arrays of xyz coordinates. Uses fallbacks for the track limits
-            coordinates if not all are provided (uses soft track limits as hard
-            track limits if not provided, and vice versa). Determines if the
-            track is closed and sets the BClosedTrack attribute. Initialises
-            CoordinateArray objects from the arrays of xyz coordinates, and
-            makes sure that their initial heading angles are all in the same
-            rotation.
+            Parses all csv files with valid file names into arrays of xyz
+            coordinates. Uses fallbacks for the track limits coordinates if not
+            all are provided (uses soft track limits as hard track limits if not
+            provided, and vice versa). Determines if the track is closed and
+            sets the BClosedTrack attribute. Initialises CoordinateArray objects
+            from the arrays of xyz coordinates, and makes sure that their
+            initial heading angles are all in the same rotation.
 
-            Parses all JSON files starting with 'eventData' to create the
+            Parses the 'eventGates.tsv' file (if provided) to create the
             corresponding event gates. Creates the start and finish gates if
             they are not provided.
 
             Returns:
-                Tuple of (coordArraysDict, eventGatesDict).
+                Tuple of (coordArraysDict, eventGates).
 
                 coordArraysDict: Dictionary containing the CoordinateArray
                     objects for all left/right soft/hard track limits, and any
                     extra coordinate arrays provided.
 
-                eventGatesDict: Dictionary containing lists of event Gate
-                    objects of each event type.
+                eventGates: List containing all the event Gate objects.
 
             Raises:
                 ValueError: Event data file {entry.name} has an invalid event
@@ -1099,48 +1136,61 @@ class Track:
 
             limitFileNames = ('xyzLimitLeftSoft.csv', 'xyzLimitRightSoft.csv', 'xyzLimitLeftHard.csv', 'xyzLimitRightHard.csv')
             extraCoordsFileNamePrefix = 'xyzExtra'
-            eventGatesFileNamePrefix = 'eventData'
+            eventGatesFileName = 'eventGates.tsv'
             validEventTypes = list(CUSTOM_EVENT_TYPES) + ['StartFinish']
 
             # Parse all provided track files
             xyzCoordsDict = {}
-            eventGatesDict: dict[str, list[Gate]] = {}
+            eventGates: list[Gate] = []
             with os.scandir(trackPath) as entries:
                 for entry in entries:
                     if entry.name in limitFileNames or (entry.name.startswith(extraCoordsFileNamePrefix) and entry.name.endswith('.csv')):
                         # Coordinate array .csv file, read the coordinates to the relevant key in xyzCoordArraysDict
                         key = entry.name[3:-4] if entry.name in limitFileNames else entry.name[len(extraCoordsFileNamePrefix):-4]
-                        xyzCoordsDict[key] = np.genfromtxt(entry, delimiter=',')
+                        xyzCoordsDict[key] = np.genfromtxt(entry, dtype=float, delimiter=',')
 
-                    elif entry.name.startswith(eventGatesFileNamePrefix) and entry.name.endswith('json'):
-                        # Event data .json file, read it and initialise the event gates to append to the relevant lists in eventGatesDict
-                        with open(entry, 'r') as jsonFile:
-                            eventData = json.load(jsonFile)
-                        dataKeys = eventData.keys()
-
-                        # Parse the event type and event name, using the name 'StartFinish' if the gate type is 'StartFinish', otherwise parsing it
-                        # from the file name
-                        if 'type' in dataKeys:
-                            eventType = eventData['type']
-                            if eventType not in validEventTypes:
-                                raise ValueError(f"Event data file {entry.name} has an invalid event type {eventType}: valid event types are\n"
-                                                 f"{validEventTypes}")
-                            eventName = 'StartFinish' if eventType == 'StartFinish' else entry.name[len(eventGatesFileNamePrefix) - 1:-5]
-                        else:
-                            raise ValueError(f"Event data file {entry.name} does not have the key 'type' required")
-
-                        # Parse the coordinates of the event gate representing the start and finish of the event
-                        for subKey in ('Start', 'Finish'):
-                            if f'xy{subKey}Left' in dataKeys and f'xy{subKey}Right' in dataKeys:
-                                event = Event(eventName, eventType, subKey == 'Start', eventData.get('properties', {}))
-                                eventGate = __getGateFromCoords(eventData[f'xy{subKey}Left'], eventData[f'xy{subKey}Right'], event)
-                                if eventType in eventGatesDict.keys():
-                                    eventGatesDict[eventType].append(eventGate)
+                    elif entry.name == eventGatesFileName:
+                        # Event data .tsv file, read it and initialise each event gate to append to the eventGates list
+                        with open(entry, 'r') as eventGatesFile:
+                            for line in eventGatesFile.read():
+                                gateData = line.split('\t')
+                                if 0 < len(gateData) < 4:
+                                    raise ValueError(f"Invalid number of tab-separated columns for line in {eventGatesFile}:\n{line}")
                                 else:
-                                    eventGatesDict[eventType] = [eventGate]
-                            elif eventType != 'StartFinish':
-                                raise ValueError(f"Event data file {entry.name} does not have the {subKey.lower()} coordinate keys 'xyStartLeft' "
-                                                 f"and/or 'xyStartRight',\nand event type is '{eventType}', not 'StartFinish'")
+                                    # Parse the event gate data from the line
+                                    # At least coordinates provided
+                                    xyLeft = np.array(gateData[0:2], dtype=float)
+                                    xyRight = np.array(gateData[2:4], dtype=float)
+                                    if len(gateData) == 4:
+                                        # Event type not provided, assume it is 'Auxiliary'
+                                        event = Event('Auxiliary')
+                                    else:
+                                        # eventType also provided
+                                        if gateData[4] in validEventTypes:
+                                            eventType = gateData[4]
+                                        else:
+                                            raise ValueError(f"Invalid event type '{eventType}' for line in {eventGatesFile}, valid event types are\n"
+                                                             f"{validEventTypes}")
+                                        if len(gateData) == 5:
+                                            event = Event(eventType)
+                                        else:
+                                            # BStart also provided
+                                            if BStart == 'true' or BStart == '1':
+                                                BStart = True
+                                            elif BStart == 'false' or BStart == '0':
+                                                BStart = False
+                                            else:
+                                                raise ValueError(f"Invalid argument '{BStart}' in the 'BStart' column (6th column) for line in"
+                                                                 f"{eventGatesFile}:\n{line}")
+                                            if len(gateData) == 6:
+                                                event = Event(eventType, BStart)
+                                            else:
+                                                # properties also provided
+                                                properties = json.loads(gateData[6])
+                                                event = Event(eventType, BStart, properties)
+
+                                    # Create the gate and append it to the eventGates list
+                                    eventGates.append(__getGateFromCoords(xyLeft, xyRight, event))
 
             # Use fallbacks for left and right track limits coordinates if they don't exist, and automatically determine if the track is closed
             BClosedTrack = True
@@ -1184,43 +1234,42 @@ class Track:
                 coordArray.rotateHeadings(AOffset)
 
             # Check if start and finish gates exist
-            startGate = None
-            finishGate = None
-            if 'StartFinish' in eventGatesDict.keys():
-                for eventGate in eventGatesDict['StartFinish']:
+            BStartGate = False
+            BFinishGate = False
+            for eventGate in eventGates:
+                if eventGate.event.eventType == 'StartFinish':
                     if eventGate.event.BStart:
-                        startGate = eventGate
+                        BStartGate = True
                     else:
-                        finishGate = eventGate
+                        BFinishGate = True
 
             # Create start and finish gates if they don't exist
-            if startGate is None:
-                startGate = __getGateFromCoords(coordArraysDict['LimitLeftSoft'].xyzCoords[0],
-                                                coordArraysDict['LimitRightSoft'].xyzCoords[0],
-                                                Event('StartFinish', 'StartFinish', True, {}))
-            if finishGate is None:
-                finishGate = __getGateFromCoords(coordArraysDict['LimitLeftSoft'].xyzCoords[-1],
-                                                 coordArraysDict['LimitRightSoft'].xyzCoords[-1],
-                                                 Event('StartFinish', 'StartFinish', False, {}))
-
-            # Make sure the 'StartFinish' key in eventGatesDict is in the right order (rewrite its value)
-            eventGatesDict['StartFinish'] = [startGate, finishGate]
+            if not BStartGate:
+                eventGates.append(__getGateFromCoords(coordArraysDict['LimitLeftSoft'].xyzCoords[0],
+                                                      coordArraysDict['LimitRightSoft'].xyzCoords[0],
+                                                      Event('StartFinish', True)))
+            if not BFinishGate:
+                eventGates.append(__getGateFromCoords(coordArraysDict['LimitLeftSoft'].xyzCoords[-1],
+                                                      coordArraysDict['LimitRightSoft'].xyzCoords[-1],
+                                                      Event('StartFinish', False)))
 
             # Make sure that every event type has an equal number of start and finish gates
-            for eventGatesList in eventGatesDict.values():
-                nStart = 0
-                nFinish = 0
-                for eventGate in eventGatesList:
+            nStartDict = {eventType: 0 for eventType in validEventTypes}
+            nFinishDict = {eventType: 0 for eventType in validEventTypes}
+            for eventGate in eventGates:
+                if eventGate.event.BStart is not None:
                     if eventGate.event.BStart:
-                        nStart += 1
+                        nStartDict[eventGate.event.eventType] += 1
                     else:
-                        nFinish += 1
-                if nStart != nFinish:
-                    raise ValueError(f"Event type '{eventType}' has {nStart} start gates but {nFinish} finish gates")
+                        nFinishDict[eventGate.event.eventType] += 1
+
+            for eventType in validEventTypes:
+                if nStartDict[eventType] != nFinishDict[eventType]:
+                    raise ValueError(f"Event type '{eventType}' has {nStartDict[eventType]} start gates but {nFinishDict[eventType]} finish gates")
 
             print("Finished parsing track files")
 
-            return coordArraysDict, eventGatesDict
+            return coordArraysDict, eventGates
 
         def __getGateFromParams(params: NDArrayFloat1D,
                                 prevGate: Gate) -> Gate:
@@ -1400,9 +1449,11 @@ class Track:
                 # Get the colour of the track gate line and text string for the annotation
                 c = (0, 0, 0)
                 text = str(i)
-                if gate.event is not None:
-                    text += "\n" + gate.event.name + ("\n(Start)" if gate.event.BStart else "\n(Finish)")
-                    if gate.event.type == 'StartFinish':
+                if gate.event.eventType is not None:
+                    text += "\n" + gate.event.eventType
+                    if gate.event.BStart is not None:
+                        text += "\n(Start)" if gate.event.BStart else "\n(Finish)"
+                    if gate.event.eventType == 'StartFinish':
                         c = (0, 1, 0) if gate.event.BStart else (1, 0, 0)
                 if indsBadGates:
                     ls = '--' if i in indsBadGates else '-'
@@ -1529,7 +1580,7 @@ class Track:
 
         ## Parse track files to dictionaries ##
         # Attribute BClosedTrack is also set in the function __parseTrackFiles()
-        coordArraysDict, eventGatesDict = __parseTrackFiles()
+        coordArraysDict, eventGates = __parseTrackFiles()
 
         ## Setup before gate creation loop ##
         print("Setting up gates")
@@ -1544,7 +1595,7 @@ class Track:
         lLimitSoft = float(np.linalg.norm(coordArraysDict['LimitLeftSoft'].xyzCoords[0] - coordArraysDict['LimitRightSoft'].xyzCoords[0]) / 2)
         firstGate = __getGateFromCoords(coordArraysDict['LimitLeftSoft'].xyzCoords[0],
                                         coordArraysDict['LimitRightSoft'].xyzCoords[0],
-                                        Event('GateCreation', 'GateCreation', True, {}),
+                                        Event('GateCreation', True),
                                         lLimitSoft,
                                         lLimitSoft)
 
@@ -1579,12 +1630,11 @@ class Track:
 
         # Check that the first gate doesn't intersect with any event gates with heading angles within the heading angle threshold
         BValidGate = True
-        for eventGatesList in eventGatesDict.values():
-            for eventGate in eventGatesList:
-                if (firstGate.xyLine.intersects(eventGate.xyLine)
-                        and abs(utils.wrap(firstGate.AHeading - eventGate.AHeading, -np.pi, np.pi)) < HEADING_ANGLE_THRESHOLD):
-                    BValidGate = False
-                    break
+        for eventGate in eventGates:
+            if (firstGate.xyLine.intersects(eventGate.xyLine)
+                    and abs(utils.wrap(firstGate.AHeading - eventGate.AHeading, -np.pi, np.pi)) < HEADING_ANGLE_THRESHOLD):
+                BValidGate = False
+                break
 
         # If the first gate doesn't intersect with any event gates, it's valid, so append the first gate to the gates list and append the distances
         # along the coordinate arrays of its intersections with the coordinate arrays to the relevant lists in sIntersectionsDict
@@ -1593,27 +1643,24 @@ class Track:
             for key, s in sDictFirst.items():
                 sIntersectionsDict[key].append(s)
 
-        # Create the final gate used for stopping gate creation
+        # Create the final gate used for stopping gate creation and append it to the eventGates list
         if self.BClosedTrack:
             # Closed track, use the first gate as the final gate, where the gate only spans the width of the soft track limits and the event attribute
             # set for the final gate of the 'GateCreation' type
-            finalGate = Gate(firstGate.xyMidpoint,
-                             firstGate.AHeading,
-                             Event('GateCreation', 'GateCreation', False, {}),
-                             firstGate.lLimitLeftSoft,
-                             firstGate.lLimitRightSoft)
+            eventGates.append(Gate(firstGate.xyMidpoint,
+                                   firstGate.AHeading,
+                                   Event('GateCreation', False),
+                                   firstGate.lLimitLeftSoft,
+                                   firstGate.lLimitRightSoft))
         else:
             # Track is not closed, create the final gate from the final coordinates of the soft track limits, with the event attribute set for the
             # final gate of the 'GateCreation' type and with the distances to the soft track limits calculated and defined
             lLimitSoft = float(np.linalg.norm(coordArraysDict['LimitLeftSoft'].xyzCoords[-1] - coordArraysDict['LimitRightSoft'].xyzCoords[-1]) / 2)
-            finalGate = __getGateFromCoords(coordArraysDict['LimitLeftSoft'].xyzCoords[-1],
-                                            coordArraysDict['LimitRightSoft'].xyzCoords[-1],
-                                            Event('GateCreation', 'GateCreation', False, {}),
-                                            lLimitSoft,
-                                            lLimitSoft)
-
-        # Add the 'GateCreation' key and value to eventGatesDict
-        eventGatesDict['GateCreation'] = [finalGate]
+            eventGates.append(__getGateFromCoords(coordArraysDict['LimitLeftSoft'].xyzCoords[-1],
+                                                  coordArraysDict['LimitRightSoft'].xyzCoords[-1],
+                                                  Event('GateCreation', False),
+                                                  lLimitSoft,
+                                                  lLimitSoft))
 
         print("Finished setting up gates")
 
@@ -1714,39 +1761,40 @@ class Track:
             AHeadingAvg = (prevGate.AHeading + candidateGate.AHeading) / 2
             eventGatesContained: list[Gate] = []
             sEventGatesContained: list[dict[str, float]] = []
-            for eventGatesList in eventGatesDict.values():
-                for eventGate in eventGatesList:
-                    # Calculate the heading angle difference compared to the average heading angle of the previous and candidate gates
-                    AHeadingDiff = utils.wrap(eventGate.AHeading - AHeadingAvg, -np.pi, np.pi)
+            for eventGate in eventGates:
+                # Calculate the heading angle difference compared to the average heading angle of the previous and candidate gates
+                AHeadingDiff = utils.wrap(eventGate.AHeading - AHeadingAvg, -np.pi, np.pi)
 
-                    # Check if the line from the previous gate midpoint to the candidate gate midpoint intersects with the event gate, and if the
-                    # event gate has a similar heading angle to the average heading angle of the previous and candidate gate, and that the previous
-                    # gate is not the first gate if the event gate is a GateCreation type
-                    if (xyLinePrevToCandidateMidpoint.intersects(eventGate.xyLine)
-                            and abs(AHeadingDiff) <= HEADING_ANGLE_THRESHOLD
-                            and not (prevGate == firstGate and eventGate.event.type == 'GateCreation')):
-                        # Event gate is contained within the track segment from the previous gate to the candidate gate, append it to the
-                        # eventGatesContained list
-                        print(f"\tEvent gate {eventGate.event.name} of type {eventGate.event.type} "
-                              f"({"Start" if eventGate.event.BStart else "Finish"})\n"
-                              f"contained in the track segment between the previous and current gates")
-                        eventGatesContained.append(eventGate)
+                # Check if the line from the previous gate midpoint to the candidate gate midpoint intersects with the event gate, and if the
+                # event gate has a similar heading angle to the average heading angle of the previous and candidate gate, and that the previous
+                # gate is not the first gate if the event gate is a GateCreation type
+                if (xyLinePrevToCandidateMidpoint.intersects(eventGate.xyLine)
+                        and abs(AHeadingDiff) <= HEADING_ANGLE_THRESHOLD
+                        and not (prevGate == firstGate and eventGate.event.eventType == 'GateCreation')):
+                    # Event gate is contained within the track segment from the previous gate to the candidate gate, append it to the
+                    # eventGatesContained list
+                    printStr = f"\tEvent gate of type '{eventGate.event.eventType}'"
+                    if eventGate.event.BStart is not None:
+                        printStr += f" ({"Start" if eventGate.event.BStart else "Finish"})"
+                    printStr += "\ncontained in the track segment between the previous and current gates"
+                    print(printStr)
+                    eventGatesContained.append(eventGate)
 
-                        # Update the event gate width to the maximum gate width to calculate intersections with the coordinate arrays
-                        eventGate.updateWidths(GATE_MAX_WIDTH / 2, GATE_MAX_WIDTH / 2)
+                    # Update the event gate width to the maximum gate width to calculate intersections with the coordinate arrays
+                    eventGate.updateWidths(GATE_MAX_WIDTH / 2, GATE_MAX_WIDTH / 2)
 
-                        # Calculate the intersections with the coordinate arrays and store the distances along the coordinate arrays of the
-                        # intersections
-                        sEventGatesContained.append({})
-                        for key, reducedCoordArray in reducedCoordArraysDict.items():
-                            _, sEventGatesContained[-1][key] = eventGate.calcIntersection(reducedCoordArraysDict[key], key)
+                    # Calculate the intersections with the coordinate arrays and store the distances along the coordinate arrays of the
+                    # intersections
+                    sEventGatesContained.append({})
+                    for key, reducedCoordArray in reducedCoordArraysDict.items():
+                        _, sEventGatesContained[-1][key] = eventGate.calcIntersection(reducedCoordArraysDict[key], key)
 
-                        # Align the event gate's heading angle to be within pi of the average heading angle of the previous and candidate gates
-                        eventGate.AHeading = utils.wrap(eventGate.AHeading, AHeadingAvg - np.pi, AHeadingAvg + np.pi)
+                    # Align the event gate's heading angle to be within pi of the average heading angle of the previous and candidate gates
+                    eventGate.AHeading = utils.wrap(eventGate.AHeading, AHeadingAvg - np.pi, AHeadingAvg + np.pi)
 
-                        # Update the event gate width to follow the GATE_EXTEND_WIDTH_XX constants and recalculate the event gate midpoint
-                        eventGate.updateWidths()
-                        eventGate.recalcMidpoint()
+                    # Update the event gate width to follow the GATE_EXTEND_WIDTH_XX constants and recalculate the event gate midpoint
+                    eventGate.updateWidths()
+                    eventGate.recalcMidpoint()
 
             # Sort the eventGatesContained and sEventGatesContained lists in order of ascending distance of the projection of their midpoint onto the
             # line from the previous gate midpoint to the candidate gate midpoint
@@ -1761,9 +1809,9 @@ class Track:
             indFinish = None
             for i, eventGate in enumerate(eventGatesContained):
                 # Find the indexes of the start and finish gates
-                if eventGate.event.type == 'StartFinish' and eventGate.event.BStart:
+                if eventGate.event.eventType == 'StartFinish' and eventGate.event.BStart:
                     indStart = i
-                elif eventGate.event.type == 'StartFinish' and not eventGate.event.BStart:
+                elif eventGate.event.eventType == 'StartFinish' and not eventGate.event.BStart:
                     indFinish = i
 
                 if indStart is not None and indFinish is not None:
@@ -1778,7 +1826,7 @@ class Track:
 
             if len(eventGatesContained) > 0:
                 # Check if any of the event gates contained in the track segment have the event to finish the gate creation loop
-                BStopEventGates = [eventGate.event.type == 'GateCreation' and not eventGate.event.BStart for eventGate in eventGatesContained]
+                BStopEventGates = [eventGate.event.eventType == 'GateCreation' and not eventGate.event.BStart for eventGate in eventGatesContained]
                 if any(BStopEventGates):
                     # Finish gate creation event gate is contained in the track segment, set the flags to mark the candidate gate as invalid and stop
                     # gate creation
@@ -1829,7 +1877,7 @@ class Track:
                                  + abs(eventGatesContained[0].AHeading - gates[-1].AHeading) > GATE_SIMILARITY_THRESHOLD)):
                         # Intersection found and gates don't share the same line
                         BIntersects = True
-                        if gates[-1].event is not None:
+                        if gates[-1].event.eventType is not None:
                             # Last gate in the gates list is an event gate
                             gates.append(eventGatesContained[0])
                             indsBadGates = [-2, -1]
@@ -1853,12 +1901,12 @@ class Track:
                     BValidGate = False
 
                 # Append the event gates and the distances along the coordinate arrays of their intersections with the coordinate arrays to the
-                # relevant lists, and remove them from eventGatesDict
+                # relevant lists, and remove them from the eventGates list
                 for i, eventGate in enumerate(eventGatesContained):
                     gates.append(eventGate)
                     for key in sEventGatesContained[i].keys():
                         sIntersectionsDict[key].append(sEventGatesContained[i][key])
-                    eventGatesDict[eventGate.event.type].remove(eventGate)
+                    eventGates.remove(eventGate)
 
             # Check if the candidate gate intersects with the last gate in the gates list
             if len(gates) > 0:
@@ -1887,15 +1935,14 @@ class Track:
                                  + abs(gates[0].AHeading - gates[-1].AHeading) > GATE_SIMILARITY_THRESHOLD)):
                         # Intersection found and gates don't share the same line
                         BIntersects = True
-                        if gates[-1].event is not None:
-                            if gates[-1].event.type != 'GateCreation':
-                                # Last gate in the gates list is an event gate
-                                gates.append(eventGatesContained[0])
-                                indsBadGates = [-2, -1]
-                                __saveTrackPlot(coordArraysDict, gates, indsBadGates)
-                                raise ValueError(f"Consecutive event gates intersect, see track plot in {trackPath}:\npossible fixes are spacing out "
-                                                 f"the event gates more,\nreducing GATE_EXTEND_WIDTH_SOFT or GATE_EXTEND_WIDTH_HARD,\n"
-                                                 f"increasing HEADING_ANGLE_THRESHOLD")
+                        if gates[-1].event.eventType not in (None, 'GateCreation'):
+                            # Last gate in the gates list is an event gate (and isn't the event gate to stop gate creation)
+                            gates.append(eventGatesContained[0])
+                            indsBadGates = [-2, -1]
+                            __saveTrackPlot(coordArraysDict, gates, indsBadGates)
+                            raise ValueError(f"Consecutive event gates intersect, see track plot in {trackPath}:\npossible fixes are spacing out the "
+                                             f"event gates more,\nreducing GATE_EXTEND_WIDTH_SOFT or GATE_EXTEND_WIDTH_HARD,\n"
+                                             f"increasing HEADING_ANGLE_THRESHOLD")
                         # Last gate in the gates list is not an event gate (or it's the event gate to stop gate creation), remove it from the gates
                         # list and remove the last elements from all the lists in sIntersectionsDict
                         del gates[-1]
@@ -1915,11 +1962,10 @@ class Track:
 
         ## Postprocessing and validation
         print("Validating and postprocessing the gates")
-        # Remove the event of the first/last gate in the gates list if they have the event attribute with the GateCreation type
+        # Set the event of the first/last gate in the gates list to the default event if they have the event attribute with the GateCreation type
         for i in (0, -1):
-            if gates[i].event is not None:
-                if gates[i].event.type == 'GateCreation':
-                    gates[i].event = None
+            if gates[i].event.eventType == 'GateCreation':
+                gates[i].event = Event()
 
         # Set the width to the hard track limits to at least the width of the soft track limits (and add the fallbacks in case either weren't set)
         for gate in gates:
@@ -1938,21 +1984,14 @@ class Track:
             elif gate.lLimitRightHard is not None:
                 gate.lLimitRightSoft = gate.lLimitRightHard
 
-        # Find the indexes of the start and finish gates of each event
-        indsEventGatesDict = {}     # Dictionary where each key is an event name, storing a list in the form [indEventStart, indEventFinish]
-        for i, gate in enumerate(gates):
-            if gate.event is not None:
-                # Create the key if it doesn't exist
-                indsEventGatesDict[gate.event.name] = indsEventGatesDict.get(gate.event.name, [len(gates), -1])
-                # Store the event start/finish gate index
-                if gate.event.BStart:
-                    indsEventGatesDict[gate.event.name][0] = i
-                else:
-                    indsEventGatesDict[gate.event.name][1] = i
-
+        # If the track is closed, roll the order of the gates so that the finish gate is the last index in the lists
         if self.BClosedTrack:
-            # Track is closed, roll the order of the gates so that the finish gate is the last index in the lists
-            shift = indsEventGatesDict['StartFinish'][1] + 1
+            # Find the index of the finish gate to calculate the number of gates to roll
+            shift = 0
+            for i, gate in enumerate(gates):
+                if gate.event.eventType == 'StartFinish' and not gate.event.BStart:
+                    shift = i + 1
+                    break
 
             # First make sure that all the gates that will be rolled have consistent heading angles to avoid discontinuities
             AOffset = round((gates[-1].AHeading - gates[0].AHeading) / (2 * np.pi)) * (2 * np.pi)
@@ -1964,27 +2003,41 @@ class Track:
             for key, s in sIntersectionsDict.items():
                 sIntersectionsDict[key] = s[shift:] + s[:shift]
 
-        else:
-            # Track is not closed, check if any event start gates are after their finish gate
-            indsBadGates = []
-            for indsEventGates in indsEventGatesDict.values():
-                if indsEventGates[0] > indsBadGates[1]:
-                    indsBadGates.append(indsEventGates)
-            if indsBadGates:
-                __saveTrackPlot(coordArraysDict, gates, indsBadGates)
-                raise ValueError(f"Track is not closed but there are event finish gates before their start gates,\nsee track plot in {trackPath}")
+        # Check that each gate type doesn't have 2 start/2 finish gates in a row, and that all finish gates are after their corresponding start gates
+        # if the track is not closed
+        nEventDict = {eventType: 0 for eventType in list(CUSTOM_EVENT_TYPES) + list(INTERNAL_EVENT_TYPES)}
+        for i, gate in enumerate(gates):
+            if gate.event.BStart is not None:
+                # Add 1 to the event type value if it's a start gate, subtract 1 if it's a finish gate
+                if gate.event.BStart:
+                    nEventDict[gate.event.eventType] += 1
+                else:
+                    nEventDict[gate.event.eventType] -= 1
+
+                # Event type value must be within -1 and 1 if the track is closed, or within 0 and 1 if the track is not closed
+                if 1 < nEventDict[gate.event.eventType]:
+                        __saveTrackPlot(coordArraysDict, gates, [i])
+                        raise ValueError(f"Event '{gate.event.eventType}' has a 2 start gates without a finish gate in between, see track plot in"
+                                         f"{trackPath}")
+                elif self.BClosedTrack and nEventDict[gate.event.eventType] < -1:
+                    __saveTrackPlot(coordArraysDict, gates, [i])
+                    raise ValueError(f"Event '{gate.event.eventType}' has a 2 finish gates without a start gate in between, see track plot in"
+                                     f"{trackPath}")
+                elif nEventDict[gate.event.eventType] < 0:
+                    __saveTrackPlot(coordArraysDict, gates, [i])
+                    raise ValueError(f"Event '{gate.event.eventType}' has a start gate before its finish gate but the track is not closed, see"
+                                     f"track plot in {trackPath}")
 
         # Check if there are any remaining event gates that haven't been included in the track
-        if any(eventGatesDict.values()):
+        if len(eventGates) > 0:
             # There are event gates that haven't been included in the track
             indsBadGates = []
-            for eventGatesList in eventGatesDict.values():
-                for eventGate in eventGatesList:
-                    gates.append(eventGate)
-                    indsBadGates.append(len(gates))
+            for eventGate in eventGates:
+                gates.append(eventGate)
+                indsBadGates.append(len(gates))
             __saveTrackPlot(coordArraysDict, gates, indsBadGates)
-            raise ValueError(f"Gate creation stopped before all event gates were added, see track plot in {trackPath}:\nevent gates not added are "
-                             f"{[f"{gates[i].event.name} (Start: {gates[i].event.BStart})\n" for i in indsBadGates]}")
+            raise ValueError(f"Gate creation stopped before all event gates were added, see track plot in {trackPath}:\n"
+                             f"Event gates not added are {[f"{gates[i].event.eventType} (BStart: {gates[i].event.BStart})\n" for i in indsBadGates]}")
 
         # Set the gates attribute
         self.gates = np.array(gates)
