@@ -9,7 +9,7 @@ classes used to generate and define the track.
 import os
 import json
 import pickle as pkl
-from typing import Literal
+from typing import Literal, get_args
 
 # External libraries
 import scipy
@@ -516,7 +516,7 @@ class Event:
         # Validate the BStart argument for the event type
         if eventType in ('Auxiliary', None):
             eventType = None
-        else:
+        elif BStart is None:
             raise ValueError(f"Argument 'BStart' is None but event type '{eventType}' requires a boolean 'BStart' attribute to be defined")
 
         # Validate the properties argument for the event type
@@ -1046,7 +1046,8 @@ class Track:
                 adds it to the track gates.
             12. If the flag to stop the gate creation loop is true and the track
                 is closed, checks if the first gate intersects with the last
-                gate. If so, removes the last gate in the gates list until this
+                gate. If so, removes the first gate if it has the 'GateCreation'
+                event type, or the last gate in the gates list, until this
                 is no longer the case.
 
         Once the gate creation loop has finished, postprocesses and validates
@@ -1189,7 +1190,7 @@ class Track:
             print("Parsing track files")
 
             limitFileNames = (LIMIT_LEFT_SOFT_FILENAME, LIMIT_RIGHT_SOFT_FILENAME, LIMIT_LEFT_HARD_FILENAME, LIMIT_RIGHT_HARD_FILENAME)
-            validEventTypes = list(CUSTOM_EVENT_TYPES) + ['StartFinish']
+            validEventTypes = list(get_args(CUSTOM_EVENT_TYPES)) + ['StartFinish']
 
             # Parse all provided track files
             xyzCoordsDict = {}
@@ -1976,30 +1977,36 @@ class Track:
                 print(f"\tGate {len(gates) - len(eventGatesContained)} satisfied all checks")
 
             # If the gate creation finish gate has been reached and the track is closed, check if the first gate intersects with the last gate in the
-            # gates list, and if so, remove the last gate in the gates list and repeat until the first gate no longer intersects with the last gate
-            # in the gates list
+            # gates list, and if so, remove the first gate if it has the 'GateCreation' type, or remove the last gate otherwise
+            # Repeat until the first gate no longer intersects with the last gate in the gates list
             if BStopGateCreation and self.BClosedTrack:
                 BIntersects = True
                 while BIntersects and len(gates) > 0:
-                    # Check if the first gate in the gates list intersects with the last gate in the gates list, but doesn't the same line
-                    if (gates[0].xyLine.intersects(gates[-1].xyLine)
-                            and (np.linalg.norm(gates[0].xyMidpoint - gates[-1].xyMidpoint)
-                                 + abs(gates[0].AHeading - gates[-1].AHeading) > GATE_SIMILARITY_THRESHOLD)):
-                        # Intersection found and gates don't share the same line
-                        BIntersects = True
-                        if gates[-1].event.eventType not in (None, 'GateCreation'):
-                            # Last gate in the gates list is an event gate (and isn't the event gate to stop gate creation)
-                            gates.append(eventGatesContained[0])
-                            indsBadGates = [-2, -1]
-                            __saveTrackPlot(coordArraysDict, gates, indsBadGates)
-                            raise ValueError(f"Consecutive event gates intersect, see track plot in {trackPath}:\npossible fixes are spacing out the "
-                                             f"event gates more,\nreducing GATE_EXTEND_WIDTH_SOFT or GATE_EXTEND_WIDTH_HARD,\n"
-                                             f"increasing HEADING_ANGLE_THRESHOLD")
-                        # Last gate in the gates list is not an event gate (or it's the event gate to stop gate creation), remove it from the gates
-                        # list and remove the last elements from all the lists in sIntersectionsDict
-                        del gates[-1]
-                        for sIntersections in sIntersectionsDict.values():
-                            del sIntersections[-1]
+                    # Check if the first gate in the gates list intersects with the last gate in the gates list
+                    if gates[0].xyLine.intersects(gates[-1].xyLine):
+                        if gates[0].event.eventType == 'GateCreation':
+                            # First gate in the gates list has the 'GateCreation' event type, remove it from the gates list and remove the first
+                            # elements from all the lists in sIntersectionsDict
+                            del gates[0]
+                            for sIntersections in sIntersectionsDict.values():
+                                del sIntersections[0]
+                        elif (np.linalg.norm(gates[0].xyMidpoint - gates[-1].xyMidpoint)
+                                + abs(utils.wrap(gates[0].AHeading - gates[-1].AHeading, -np.pi, np.pi)) > GATE_SIMILARITY_THRESHOLD):
+                            # First gate in the gates list intersects with the last gate in the gates list, but doesn't share the same line
+                            if gates[-1].event.eventType in (None, 'GateCreation'):
+                                # Last gate in the gates list is not an event gate (or it's the event gate to stop gate creation), remove it from the
+                                # gates list and remove the last elements from all the lists in sIntersectionsDict
+                                del gates[-1]
+                                for sIntersections in sIntersectionsDict.values():
+                                    del sIntersections[-1]
+                            else:
+                                # Last gate in the gates list is an event gate (and isn't the event gate to stop gate creation)
+                                gates.append(eventGatesContained[0])
+                                indsBadGates = [-2, -1]
+                                __saveTrackPlot(coordArraysDict, gates, indsBadGates)
+                                raise ValueError(f"Consecutive event gates intersect, see track plot in {trackPath}:\npossible fixes are spacing out "
+                                                 f"the event gates more,\nreducing GATE_EXTEND_WIDTH_SOFT or GATE_EXTEND_WIDTH_HARD,\n"
+                                                 f"increasing HEADING_ANGLE_THRESHOLD")
                     else:
                         # No intersection found
                         BIntersects = False
@@ -2057,7 +2064,7 @@ class Track:
 
         # Check that each gate type doesn't have 2 start/2 finish gates in a row, and that all finish gates are after their corresponding start gates
         # if the track is not closed
-        nEventDict = {eventType: 0 for eventType in list(CUSTOM_EVENT_TYPES) + list(INTERNAL_EVENT_TYPES)}
+        nEventDict = {eventType: 0 for eventType in get_args(CUSTOM_EVENT_TYPES) + get_args(INTERNAL_EVENT_TYPES)}
         for i, gate in enumerate(gates):
             if gate.event.BStart is not None:
                 # Add 1 to the event type value if it's a start gate, subtract 1 if it's a finish gate
