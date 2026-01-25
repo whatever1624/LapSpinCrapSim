@@ -14,7 +14,7 @@ import scipy
 import numpy as np
 
 # Project python modules
-from Utils.typeAliases import Any, ListFloat2D, NDArrayFloat1D, NDArrayFloat2D, NDArrayInt1D, NDArrayNumber1D
+from Utils.typeAliases import Any, ListFloat2D, NDArrayFloat1D, NDArrayFloat2D, NDArrayNumber1D
 import Utils.utils as utils
 from track import Track
 

@@ -28,6 +28,8 @@ LIMIT_LEFT_SOFT_FILENAME = "xyzLimitLeftSoft.csv"
 LIMIT_RIGHT_SOFT_FILENAME = "xyzLimitRightSoft.csv"
 LIMIT_LEFT_HARD_FILENAME = "xyzLimitLeftHard.csv"
 LIMIT_RIGHT_HARD_FILENAME = "xyzLimitRightHard.csv"
+EXTRA_COORDS_FILENAME_PREFIX = 'xyzExtra'
+EVENT_GATES_FILENAME = "eventGates.tsv"
 
 # CoordinateArray constants
 LP_FILT_SPATIAL_FREQ = 0.01                     # Low-pass cutoff spatial frequency (cycles/m) - 0.01 to 0.05 seem good (100 to 20 m wavelengths)
@@ -107,9 +109,9 @@ class CoordinateArray:
             lines between coordinates. Starts from 0 if this is the "full"
             coordinate array, but can start at any value if this is a "reduced"
             coordinate array. 1D array of floats.
-        AHeadings: Unwrapped heading angle along the coordinates, in radians. 0
-            corresponds to positive y (north) and increasing clockwise. 1D array
-            of floats.
+        AHeadings: Unwrapped heading angle along the coordinates, in radians,
+            increasing clockwise with 0 corresponding to positive y (north). 1D
+            array of floats.
         AHeadingsFilt: Low-pass filtered AHeadings, with cutoff frequency
             LP_FILT_SPATIAL_FREQ and filter order LP_FILT_ORDER. 1D array of
             floats.
@@ -121,7 +123,8 @@ class CoordinateArray:
                  AHeadings: NDArrayFloat1D | None = None,
                  AHeadingsFilt: NDArrayFloat1D | None = None) -> None:
         """
-        Initialises the coordinate array and calculates all of its attributes.
+        Initialises the CoordinateArray object and calculates all of its
+        attributes.
 
         Makes sure that the coordinates are closed if the track is closed,
         removes consecutive duplicate coordinates, calculates the cumulative
@@ -129,7 +132,7 @@ class CoordinateArray:
         unwrapped heading angle along the coordinates. If all attributes are
         provided, uses those (without doing any validation).
 
-        Note that the initial unfiltered heading angle will be between 0 and 2
+        Note that the initial unfiltered heading angle will be between -pi and
         pi. This should be checked and corrected if necessary with the method
         rotateHeadings().
 
@@ -192,14 +195,14 @@ class CoordinateArray:
     def rotateHeadings(self,
                        theta: float) -> None:
         """
-        Offsets the attributes AHeadings and AHeadingsFilt by theta.
+        Offsets the attributes AHeadings and AHeadingsFilt by the angle theta.
 
-        Use this to correct the calculated heading angle attributes to ensure
-        that all CoordinateArray objects are in the same rotation.
+        This should be used to correct the calculated heading angle attributes
+        to ensure that all CoordinateArray objects are in the same rotation.
 
         Args:
-            theta: Heading angle in radians, clockwise, to offset the AHeadings
-                and AHeadingsFilt attributes.
+            theta: Heading angle in radians, positive clockwise, to offset the
+                AHeadings and AHeadingsFilt attributes.
         """
         self.AHeadings += theta
         self.AHeadingsFilt += theta
@@ -242,10 +245,9 @@ class CoordinateArray:
             Reduced coordinate array, as a CoordinateArray object.
 
         Raises:
-            ValueError: Invalid reference distance or heading angle bounds:
-                heading angle at sRef {ARef} is outside the heading angle bounds
-                [ALower, AUpper].
-            IndexError: No coordinates within the bounds specified.
+            ValueError: If the heading angle at the reference distance is
+                outside the heading angle bounds.
+            IndexError: If there are no coordinates within the bounds specified.
         """
         # Automatically determine if the track is closed
         BClosedTrack = all(self.xyzCoords[-1] == self.xyzCoords[0])
@@ -463,22 +465,24 @@ class CoordinateArray:
 
 class Event:
     """
-    Event data, which is then stored in the corresponding Gate object.
+    Event information, which is then stored in the corresponding Gate object.
 
     The default initialisation of an Event object is the event used for
     automatically generated "normal" track gates.
 
     Custom event types:
-        - TODO: Implement the custom event types:
-            -   Auxiliary (to help with tight corners where automatically
-                generated gates may intersect and get skipped), does not require
-                the BStart argument
-            -   SpeedLimiter (with property 'speed')
-            -   DRS/SLM
+        -   'Auxiliary': Manually placed gates to help with tight corners where
+            the gate creation process may skip gates and lose resolution. Does
+            not require the BStart argument.
+        -   TODO: Implement the custom event types:
+                'SpeedLimiter' (with property 'speed')
+                'DRS'/'SLM'
 
     Internal event types:
-        - StartFinish
-        - GateCreation
+        -   None: "Normal" track gate.
+        -   'StartFinish': For denoting the start and finish lines.
+        -   'GateCreation': Stops the gate creation process once it has reached
+            the end of the lap.
 
     Attributes:
         eventType: Event type, see above for the valid event gate types. String
@@ -504,8 +508,10 @@ class Event:
                 event.
 
         Raises:
-            ValueError: Argument 'BStart' is None but event type '{eventType}'
-                requires a boolean 'BStart' attribute to be defined
+            ValueError1: If the argument BStart is None but the event type
+                requires a boolean BStart attribute to be defined.
+            ValueError2: TODO: If the properties argument doesn’t contain all
+                            the required keys for the event type.
         """
         # Validate the BStart argument for the event type
         if eventType in ('Auxiliary', None):
@@ -542,12 +548,12 @@ class Gate:
         xyMidpoint: Midpoint between the left and right soft track limits,
             measured along the line of the gate in the 2D plane [x, y]. 1D array
             of floats.
-        AHeading: Unwrapped heading angle of the gate, in radians. 0 corresponds
-            to positive y (north) and increasing clockwise. This should align
-            with the unwrapped heading angles of the CoordinateArray objects.
-            Float.
+        AHeading: Unwrapped heading angle of the gate, in radians, increasing
+            clockwise with 0 corresponding to positive y (north). This should
+            align with the unwrapped heading angles of the CoordinateArray
+            objects. Float.
         event: Information about the event starting/ending at this gate. If this
-            is None, then this is a "regular" gate and does not define an event
+            is None, then this is a "normal" gate and does not define an event
             start or finish location. Event object or None.
         lLeft: Width of the gate to the left of xyMidpoint. Float.
         lRight: Width of the gate to the right of xyMidpoint. Float.
@@ -579,9 +585,9 @@ class Gate:
                 track limits, in the 2D plane [x, y]. Note that this can be
                 provided in the form [x, y, z] but only the [x, y] components
                 will be used.
-            AHeading: Unwrapped heading angle of the gate, in radians. 0
-                corresponds to positive y (north) and increasing clockwise. This
-                should align with the unwrapped heading angles of the
+            AHeading: Unwrapped heading angle of the gate, in radians,
+                increasing clockwise with 0 corresponding to positive y (north).
+                This should align with the unwrapped heading angles of the
                 CoordinateArray objects.
             event: Information about the event starting/ending at this gate.
             lLeft: Width of the gate to the left of xyMidpoint.
@@ -753,11 +759,9 @@ class Gate:
                 lLimitRightHard + GATE_EXTEND_WIDTH_HARD.
 
         Raises:
-            ValueError 1: Cannot update gate widths: lLeft not specified but
-                default value cannot be used as lLimitLeftHard is None.
-
-            ValueError 2: Cannot update gate widths: lRight not specified but
-                default value cannot be used as lLimitRightHard is None.
+            ValueError: If the lLeft or lRight arguments are not provided, but
+                the default value cannot be calculated as the required
+                distance-to-limit attributes are None.
         """
         # Set default values for lLeft and lRight if not provided
         if lLeft is None:
@@ -788,8 +792,8 @@ class Gate:
         with the new values (if they exist).
 
         Raises:
-            ValueError: Cannot recalculate gate midpoint: lLimitLeftSoft and/or
-                lLimitRightSoft is None.
+            ValueError: If any of the lLimitLeftSoft or lLimitRightSoft are
+                None.
         """
         # Check that lLimitLeftSoft and lLimitRightSoft both exist
         if self.lLimitLeftSoft is None or self.lLimitRightSoft is None:
@@ -841,12 +845,19 @@ class Track:
         csv and tsv files in that folder.
 
         Files that will be parsed to CoordinateArray objects must be:
-            -   A .csv file in the format where each row is a coordinate in
-                the form x,y,z. This file should not have a header.
+            -   A csv file (file extension .csv) in the format where each row is
+                a coordinate in the form x,y,z, where going down the rows of
+                coordinates means travelling forward along the track. These
+                files should not have a header.
             -   Named as one of the track limits 'xyzLimitLeftSoft.csv',
                 'xyzLimitRightSoft.csv', 'xyzLimitLeftHard.csv', or
                 'xyzLimitRightHard.csv'.
             -   Alternatively, named starting with the prefix 'xyzExtra'.
+
+        Note that a soft track limit means that the lap is valid as long as 1
+        tyre is within this limit - think: painted white lines. A hard track
+        limit means that the whole car must be within this limit for the lap to
+        be valid - think: wall, grass, aggressive kerbing.
 
         The trackPath folder must contain the csv files:
             - xyzLimitLeftSoft.csv and/or xyzLimitLeftHard.csv.
@@ -885,30 +896,54 @@ class Track:
         gates are at the start/finish of the soft track limits.
 
         Args:
-            trackPath: File path to the folder containing the .csv and .json
-                files required for track generation.
+            trackPath: File path to the folder containing the csv and tsv files
+                required for track generation.
             BForceTrackGen: If true, overrides and forces the track to be
-                generated and will overwrite the track .pkl file in the
+                generated and will overwrite the track pkl file in the
                 specified folder. If false, will use the automatic logic of
-                loading from the .pkl file, and falling back to generating the
-                track if it fails.
+                loading from the track pkl file, and falling back to generating
+                the track if it fails.
             BClosedTrackOverride: Overrides the automatic logic for determining
                 if the track is a closed circuit. If this is None or not
                 provided, whether the track is closed or not is determined by
                 the maximum distance from the start to finish coordinates of the
                 track limit coordinate arrays. This has no effect if the track
-                is loaded from a .pkl file.
+                is loaded from the track pkl file.
             BDebug: Whether to show debug plots of the gate creation process
                 during track generation.
+
+        Raises (if initialising by track generation):
+            ValueError1: If the event data tsv file has an invalid number of
+                tab-separated columns in a given line.
+            ValueError2: If an invalid event type is used in the event data tsv
+                file.
+            ValueError3: If the event data tsv file has an invalid value in the
+                'BStart' column.
+            ValueError4: If none of the soft track limit or hard track limit
+                coordinate array csv files are provided for one of the left/
+                right sides.
+            ValueError5: If the number of start and finish event gates for any
+                of the event types are not equal.
+            ValueError6: If both methods of optimisation for the candidate gate
+                placement failed.
+            ValueError7: If consecutive event gates intersect.
+            ValueError8: If there are 2 start gates for the same event type
+                without having a finish gate in between.
+            ValueError9: If there are 2 finish gates for the same event type
+                without having a start gate in between.
+            ValueError10: If there is an event start gate after its finish gate,
+                but the track is not closed.
+            ValueError11: If gate creation stopped before all the event gates
+                were added.
         """
         if not BForceTrackGen:
             try:
-                # Try to load and initialise from the .pkl file
+                # Try to load and initialise from the track pkl file
                 self.__initFromPkl(trackPath)
-                print("Successfully loaded and initialised Track from .pkl file")
+                print("Successfully loaded and initialised Track from the track pkl file")
             except FileNotFoundError or AttributeError:
-                # Initialisation from .pkl failed
-                print("Failed to load and initialise Track from .pkl file")
+                # Initialisation from track pkl failed
+                print("Failed to load and initialise Track from the track pkl file")
                 BForceTrackGen = True
 
         if BForceTrackGen:
@@ -920,16 +955,21 @@ class Track:
     def __initFromPkl(self,
                       trackPath: str) -> None:
         """
-        Internal method to initialise the Track object from a .pkl file.
+        Internal method to initialise the Track object from the track pkl file.
 
         Args:
-            trackPath: File path to the folder containing the track .pkl file.
+            trackPath: File path to the folder containing the track pkl file.
+
+        Raises:
+            FileNotFoundError: If the track pkl file is not in the trackPath
+                folder.
+            AttributeError: If the track pkl file is incompatible.
         """
-        # Load the .pkl file
+        # Load the track pkl file
         with open(os.path.join(trackPath, TRACK_PKL_FILENAME), 'rb') as pklFile:
             trackPkl = pkl.load(pklFile)
 
-        # Set all attributes from the attributes in the .pkl file
+        # Set all attributes from the attributes in the track pkl file
         self.BClosedTrack = trackPkl.BClosedTrack
         self.gates = trackPkl.gates
         self.mesh = trackPkl.mesh
@@ -940,7 +980,7 @@ class Track:
                            BDebug: bool = False) -> None:
         """
         Internal method to initialise the Track object by generating the track
-        from the .csv and .json files in the specified path.
+        from the csv and tsv files in the specified path.
 
         By definition, consecutive track gates are not allowed to intersect.
         This influences the large part of the logic in the gate creation loop.
@@ -959,50 +999,52 @@ class Track:
         created.
 
         Next, enters the gate creation loop. This loop is exited once the event
-        gate to stop gate creation has been reached. In this loop:
-            -   The reduced CoordinateArray objects around the next gate are
+        gate to stop gate creation has been reached.
+
+        In this gate creation loop:
+            1.  The reduced CoordinateArray objects around the next gate are
                 found.
-            -   The gate placement is optimised first with a root-finding method
+            2.  The gate placement is optimised first with a root-finding method
                 (for equal convergence/divergence of the track limits on either
                 side, and equal distances to the soft track limits on either
                 side). If the root-finding method fails, then the fallback
                 minimisation method is used (with the same broad objective of
                 having the gate point in the "forwards" direction with the
                 midpoint in the middle of the soft track limits).
-            -   From the optimised parameters of the candidate gate placement,
+            3.  From the optimised parameters of the candidate gate placement,
                 the candidate gate is created, its intersections with all the
                 reduced CoordinateArray objects are calculated, its width is
                 updated to follow the GATE_EXTEND_WIDTH_XX constants, and its
                 midpoint is recalculated.
-            -   The event gates contained in the track segment from the previous
+            4.  The event gates contained in the track segment from the previous
                 gate to the candidate gate (which are within the heading angle
                 similarity threshold) are found, their intersections with all
                 the reduced CoordinateArray objects are calculated, their widths
                 are updated to follow the GATE_EXTEND_WIDTH_XX constants, and
                 their midpoints are recalculated.
-            -   The event gates contained in the track segment are sorted in
+            5.  The event gates contained in the track segment are sorted in
                 order of ascending distance of the projection of their midpoint
                 onto the line from the previous gate midpoint to the candidate
                 gate midpoint. If both the start and finish event gates are
                 contained in the track segment, they are ordered such that the
                 finish gate is before the start gate.
-            -   Checks if any of the event gates contained in the track segment
+            6.  Checks if any of the event gates contained in the track segment
                 have the event to stop the gate creation loop. If so, sets the
                 flags to stop the gate creation loop.
-            -   Checks consecutive event gates intersect with each other but
+            7.  Checks consecutive event gates intersect with each other but
                 don't share the same line. If so, raises an error.
-            -   Checks if the last gate in the gates list intersects with the
+            8.  Checks if the last gate in the gates list intersects with the
                 first event gate contained in the track segment. If so, removes
                 the last gate in the gates list until this is no longer the
                 case.
-            -   Checks if the last event gate contained by the track segment
+            9.  Checks if the last event gate contained by the track segment
                 intersects with the candidate gate. If so, marks the candidate
                 gate as invalid.
-            -   Checks if the candidate gate intersects with the last gate in
+            10. Checks if the candidate gate intersects with the last gate in
                 the gates list. If so, marks the candidate gate as invalid.
-            -   If the candidate gate is still valid after all the checks,
+            11. If the candidate gate is still valid after all the checks,
                 adds it to the track gates.
-            -   If the flag to stop the gate creation loop is true and the track
+            12. If the flag to stop the gate creation loop is true and the track
                 is closed, checks if the first gate intersects with the last
                 gate. If so, removes the last gate in the gates list until this
                 is no longer the case.
@@ -1016,15 +1058,18 @@ class Track:
         left and right coordinates.
 
         Finally, saves the initialised Track object as a pkl file to the
-        trackPath folder, and saves a track plot to the same folder, showing:
-            -   All coordinate arrays, coloured by track limit side and type
-            -   All track gates, coloured by event type and labelled by index
-            -   All track gate intersections with the soft and hard track limits
-            -   Filled contours of the track elevation
+        trackPath folder, and saves a track plot to the same folder.
+
+        The track plot shows:
+            -   All coordinate arrays, coloured by track limit side and type.
+            -   All track gates, coloured by event type and labelled by index.
+            -   All track gate intersections with the soft and hard track
+                limits.
+            -   Filled contours of the track elevation.
 
         Args:
-            trackPath: File path to the folder containing the .csv and .json
-                files required for track generation.
+            trackPath: File path to the folder containing the csv and tsv files
+                required for track generation.
             BClosedTrackOverride: Overrides the automatic logic for determining
                 if the track is a closed circuit. If this is None or not
                 provided, whether the track is closed or not is determined by
@@ -1034,18 +1079,28 @@ class Track:
                 during track generation.
 
         Raises:
-            ValueError1: Both methods for optimisation of new gate placement
-                failed, see track plot in {trackPath}.
-            ValueError2: Consecutive event gates intersect, see track plot in
-                {trackPath}. Possible fixes are spacing out the event gates
-                more, reducing GATE_EXTEND_WIDTH_SOFT or GATE_EXTEND_WIDTH_HARD,
-                increasing HEADING_ANGLE_THRESHOLD.
-            ValueError3: Track is not closed but there are event finish gates
-                before their start gates, see track plot in {trackPath}.
-            ValueError4: Gate creation stopped before all event gates were added,
-                see track plot in {trackPath}. Event gates not added are
-                {[f"{gates[i].event.name} (Start {gates[i].event.BStart})"
-                for i in indsBadGates]}.
+            ValueError1: If the event data tsv file has an invalid number of
+                tab-separated columns in a given line.
+            ValueError2: If an invalid event type is used in the event data tsv
+                file.
+            ValueError3: If the event data tsv file has an invalid value in the
+                'BStart' column.
+            ValueError4: If none of the soft track limit or hard track limit
+                coordinate array csv files are provided for one of the left/
+                right sides.
+            ValueError5: If the number of start and finish event gates for any
+                of the event types are not equal.
+            ValueError6: If both methods of optimisation for the candidate gate
+                placement failed.
+            ValueError7: If consecutive event gates intersect.
+            ValueError8: If there are 2 start gates for the same event type
+                without having a finish gate in between.
+            ValueError9: If there are 2 finish gates for the same event type
+                without having a start gate in between.
+            ValueError10: If there is an event start gate after its finish gate,
+                but the track is not closed.
+            ValueError11: If gate creation stopped before all the event gates
+                were added.
         """
         def __getGateFromCoords(xyLeft: NDArrayFloat1D,
                                 xyRight: NDArrayFloat1D,
@@ -1119,24 +1174,21 @@ class Track:
                 eventGates: List containing all the event Gate objects.
 
             Raises:
-                ValueError: Event data file {entry.name} has an invalid event
-                    type {eventType}: valid event types are {validEventTypes}.
-                ValueError: Event data file {entry.name} does not have the key
-                    'type' required.
-                ValueError: Event data file {entry.name} does not have the
-                    {subKey.lower()} coordinate keys 'xyStartLeft' and/or
-                    'xyStartRight', and event type is '{eventType}', not
-                    'StartFinish'.
-                ValueError: {trackPath} must contain at least one of
-                    xyzLimit{subKey}Soft.csv or xyzLimit{subKey}Hard.csv.
-                ValueError: Event type '{eventType}' has {nStart} start gates
-                    but {nFinish} finish gates.
+                ValueError1: If the event data tsv file has an invalid number of
+                    tab-separated columns in a given line.
+                ValueError2: If an invalid event type is used in the event data
+                    tsv file.
+                ValueError3: If the event data tsv file has an invalid value in
+                    the 'BStart' column.
+                ValueError4: If none of the soft track limit or hard track limit
+                    coordinate array csv files are provided for one of the left/
+                    right sides.
+                ValueError5: If the number of start and finish event gates for
+                    any of the event types are not equal.
             """
             print("Parsing track files")
 
-            limitFileNames = ('xyzLimitLeftSoft.csv', 'xyzLimitRightSoft.csv', 'xyzLimitLeftHard.csv', 'xyzLimitRightHard.csv')
-            extraCoordsFileNamePrefix = 'xyzExtra'
-            eventGatesFileName = 'eventGates.tsv'
+            limitFileNames = (LIMIT_LEFT_SOFT_FILENAME, LIMIT_RIGHT_SOFT_FILENAME, LIMIT_LEFT_HARD_FILENAME, LIMIT_RIGHT_HARD_FILENAME)
             validEventTypes = list(CUSTOM_EVENT_TYPES) + ['StartFinish']
 
             # Parse all provided track files
@@ -1144,13 +1196,13 @@ class Track:
             eventGates: list[Gate] = []
             with os.scandir(trackPath) as entries:
                 for entry in entries:
-                    if entry.name in limitFileNames or (entry.name.startswith(extraCoordsFileNamePrefix) and entry.name.endswith('.csv')):
-                        # Coordinate array .csv file, read the coordinates to the relevant key in xyzCoordArraysDict
-                        key = entry.name[3:-4] if entry.name in limitFileNames else entry.name[len(extraCoordsFileNamePrefix):-4]
+                    if entry.name in limitFileNames or (entry.name.startswith(EXTRA_COORDS_FILENAME_PREFIX) and entry.name.endswith('.csv')):
+                        # Coordinate array csv file, read the coordinates to the relevant key in xyzCoordArraysDict
+                        key = entry.name[3:-4] if entry.name in limitFileNames else entry.name[len(EXTRA_COORDS_FILENAME_PREFIX):-4]
                         xyzCoordsDict[key] = np.genfromtxt(entry, dtype=float, delimiter=',')
 
-                    elif entry.name == eventGatesFileName:
-                        # Event data .tsv file, read it and initialise each event gate to append to the eventGates list
+                    elif entry.name == EVENT_GATES_FILENAME:
+                        # Event data tsv file, read it and initialise each event gate to append to the eventGates list
                         with open(entry, 'r') as eventGatesFile:
                             for line in eventGatesFile.read():
                                 gateData = line.split('\t')
@@ -1711,11 +1763,11 @@ class Track:
                 if sol.success and lLimitLeftSoft < GATE_MAX_WIDTH / 2 or lLimitRightSoft < GATE_MAX_WIDTH / 2:
                     print(f"\tFallback minimise method finding successfully optimised gate {len(gates) + 1}")
                 else:
-                    # Minimise method failed, save the track plot for debugging and raise a ValueError
+                    # Minimise method also failed, save the track plot for debugging and raise a ValueError
                     gates.append(candidateGate)
                     indsBadGates = [-1]
                     __saveTrackPlot(coordArraysDict, gates, indsBadGates)
-                    raise ValueError(f"Both methods for optimisation of new gate placement failed, see track plot in {trackPath}")
+                    raise ValueError(f"Both methods for optimisation of the candidate gate placement failed, see track plot in {trackPath}")
 
             # Debug plot of reduced coordinate arrays, all gates in the gates list, and the candidate gate
             if BDebug:
@@ -2025,7 +2077,7 @@ class Track:
                                      f"{trackPath}")
                 elif nEventDict[gate.event.eventType] < 0:
                     __saveTrackPlot(coordArraysDict, gates, [i])
-                    raise ValueError(f"Event '{gate.event.eventType}' has a start gate before its finish gate but the track is not closed, see"
+                    raise ValueError(f"Event '{gate.event.eventType}' has a start gate after its finish gate but the track is not closed, see"
                                      f"track plot in {trackPath}")
 
         # Check if there are any remaining event gates that haven't been included in the track
@@ -2138,14 +2190,14 @@ class Track:
         Chooses the closest interpolator such that the [x, y] coordinate is
         within the half-step backwards/forwards to the previous/next gate. If
         the [x, y] coordinate is outside the interpolation region, will return 0
-        or NaN, depending on the argument BReturnNaN.
+        or nan, depending on the argument BReturnNaN.
 
         Args:
             xy: Coordinate to calculate the z coordinate of the track at, in the
                 2D plane [x, y].
             indGate: Index of the closest/most recent gate. This determines
                 which local track region the xy coordinate is in.
-            BReturnNaN: Whether to return NaN if the xy coordinate is outside
+            BReturnNaN: Whether to return nan if the xy coordinate is outside
                 the interpolation region, or to sanitise it and return 0.
 
         Returns:
@@ -2206,9 +2258,10 @@ class Track:
             indGate: Index of the closest/most recent gate. This determines
                 which local track region the xy coordinate is in.
             nPoints: Number of points (perturbed vectors) to use to approximate
-                the track normal. Must be 3 or greater. Higher values give more
-                robust and potentially more accurate approximations, but at the
-                cost of increased compute time.
+                the track normal. Must be 3 or greater to return a meaningful
+                track normal. Higher values give more robust and potentially
+                more accurate approximations, but at the cost of increased
+                compute time.
 
         Returns:
             Upwards-facing normal vector to the track at the specified

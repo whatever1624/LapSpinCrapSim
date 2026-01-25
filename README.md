@@ -10,11 +10,13 @@
 
 First GitHub repo yippee!!!
 
-This is a solo project which I started at the start of the 2025 F1 summer shutdown as a passion project (and to learn how to use Git but then procrastinated that to weeks after shutdown ended), and have been working on sporadically since then
+This is a solo project which I started at the start of the 2025 F1 summer shutdown as a passion project (also to learn how to use Git but that got procrastinated to weeks after shutdown), and I’ve been working on it sporadically since then.
 
-The goal of this project is to develop a lap sim which includes integrated optimisation of trajectory, setup, energy management and even more parameters as this project gets inevitable scope creep
+The goal of this project is to be able to optimise trajectory, setup, energy management and other parameters (added through inevitable scope creep), using a quasistatic lap sim as the base.
 
-Once I have a working proof-of-concept for all/most of the modules then I will start working with branches, but for now there’s no point when the minimum viable product isn’t even ready
+Once I have a working proof-of-concept for all/most of the modules then I will start working with branches, but for now there’s no point when the minimum viable product isn’t even ready (minimum viable product for me is a bicycle model lap sim with track elevation, with trajectory optimisation).
+
+Absolutely no GenAI is being used for this project (I still don’t have confidence in its output) - everything here is pure human-generated slop :)
 
 Expect a lot of refactoring because I have no clue what I’m doing :D
 
@@ -24,11 +26,11 @@ Expect a lot of refactoring because I have no clue what I’m doing :D
 
 # Modules
 
-*Note: The links below don’t work (Notion Markdown export), but these are exported to the Documentation folder as Markdown files - though primarily for backup due to bad Markdown formatting of newlines in tables*
+*Note: The links below don’t work due to the Notion Markdown export, see the documentation website linked above or the Markdown files in the Documentation folder. However, the docstrings in the code will always be the most up-to-date.*
 
 [1 Utils](1%20Utils%20252e66e2bd3a80fb9319d451e51e4b1c.md)
 
-[`2 Track`](2%20Track%202d4e66e2bd3a8026ae52c079d9cee20a.md)
+[2 Track](2%20Track%202d4e66e2bd3a8026ae52c079d9cee20a.md)
 
 [3 Trajectory OLD](3%20Trajectory%20OLD%20254e66e2bd3a8036a34cf73c2b42096f.md)
 
@@ -44,29 +46,28 @@ Expect a lot of refactoring because I have no clue what I’m doing :D
 
 ## To Do
 
-- Clean up everything
-    - Also try and use NumPy as much as possible
-- Implement the new approach for the track module
+- Write a script that takes MoTeC csv exported AC telemetry and extract coordinate arrays of the track at coordinates of CG-projected and front tyre contact patches
 - Rework the trajectory module
     - Calculate track limit violations in terms of area violated (i.e. area of the polygon enclosed by the violating part of the trajectory and the track limits
 
-## Required Packages
+## Required External Libraries
 
-- https://docs.scipy.org/doc/scipy/
-- https://shapely.readthedocs.io/en/stable/
-- https://numpy.org/doc/stable/index.html
-- https://matplotlib.org/stable/api/pyplot_summary.html
+**External Libraries**
 
-## **Useful Links**
+- **SciPy** - https://docs.scipy.org/doc/scipy/
+- **Shapely** - https://shapely.readthedocs.io/en/stable/
+- **NumPy** - https://numpy.org/doc/stable/index.html
+- **Matplotlib** - https://matplotlib.org/stable/api/pyplot_summary.html
+
+## **Useful Links and Potential Additional Libraries**
 
 - **Spline-based trajectory optimisation research paper -** https://arxiv.org/abs/2309.09186
-- **Python modules for various file formats** - https://opendata.stackexchange.com/questions/1208/a-python-guide-for-open-data-file-formats
-- **Matplotlib live plotting** - Use interactive mode, probably store all plot information in a global dictionary (take elements from the interactive mode and scatter plot examples here https://www.geeksforgeeks.org/python/dynamically-updating-plot-in-matplotlib/)
-- **SciPy optimize input structure -** https://stackoverflow.com/questions/19843752/structure-of-inputs-to-scipy-minimize-function
+- **Matplotlib live plotting in a separate process** - https://matplotlib.org/stable/gallery/misc/multiprocess_sgskip.html
 - **Optimisation using genetic algorithm, particle swarm etc. -** https://pymoo.org/index.html
-- **Parallelised SciPy optimise minimise with method L-BFGS-B, may be suited for trajectory or energy management optimisation** - https://pypi.org/project/optimparallel/
-- **Parallelised SciPy global optimisation with differential_evolution, may be suited for setup optimisation** - https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html#scipy.optimize.differential_evolution
+- **Python timing code snippet compute time** - https://docs.python.org/3/library/timeit.html
 - **Python multiprocessing** - https://docs.python.org/3/library/multiprocessing.html
+- **Python logging** - https://docs.python.org/3/library/logging.html
+- **Python profiling** - https://docs.python.org/3/library/profile.html
 
 ## Conventions
 
@@ -103,47 +104,48 @@ Expect a lot of refactoring because I have no clue what I’m doing :D
     
     ```python
     """
-    Short 1 or 2 sentence summary of the module/function, terminated with a full stop.
+    Short 1 or 2 sentence summary of the module/function, with a full stop.
     
     After a line break, write a more detailed description of the module/function if
-    necessary. This can include example use cases. Full sentences should end in a full
-    stop. Short bullet points can be used without needing to end with a full stop. For
-    functions, the section below must be included (unless the function has no arguments,
-    no returned values, and no raised errors/exceptions).
+    necessary. This can include example use cases. Full sentences should end in a
+    full stop. Bullet points can be used. For functions, the section below must be
+    included (unless the function has no arguments, no returned values, and no
+    raised errors/exceptions).
     
     Args (IF THE FUNCTION TAKES ARGUMENTS):
-    		Function argument 1: Description of the argument. This should contain the data
-    				type(s) expected if the type hints are unclear (particularly for lists and
-    				arrays). If this runs over a new line, use a tab indent for subsequent lines
-    				of the description.
-    		Function argument 2: Don't forget the full stop.
+        Function argument 1: Description of the argument. This should contain the
+            data type(s) expected if the type hints are unclear (particularly for
+            lists and arrays). If this runs over a new line, use a tab indent for
+            subsequent lines of the description.
+        Function argument 2: Don't forget the full stop.
     
     Returns (IF THE FUNCTION RETURNS SOMETHING):
-    		Describe the return of the function, including the data types(s) expected. If
-    		there are multiple returns, this should state "Returns a tuple of (a, b, ...)"
-    		and list the values returned similar to the Args section, such as below.
-    		
-    		a: Description of the returned value. Should contain the data type(s) expected.
-    		Do not tab-indent subsequent lines here.
-    		
-    		b: Similar things here.
-    		
-    		This section can also contain logic if the function return changes based on the
-    		arguments. Note that blank lines are necessary for the documentation tooltip to
-    		render line breaks properly.
+        Describe the return of the function, including the data types(s) expected.
+        If there are multiple returns, this should state "Returns a tuple of (a, b,
+        ...)" and list the values returned similar to the Args section, such as
+        below.
+        
+        a: Description of the returned value. Should contain the data type(s)
+            expected.
+        
+        b: Similar things here.
+        
+        This section can also contain logic if the function return changes based on
+        the arguments. Note that blank lines are necessary for the documentation
+        tooltip to render line breaks properly.
     
     Raises (IF THE FUNCTION RAISES ANYTHING):
-    		Error1: Text printed out if the error is raised
-    		Error2: Same thing, if there are multiple possible errors that can be raised
+        Error1: Text printed out if the error is raised
+        Error2: Same thing, if there are multiple possible errors that can be raised
     """
     ```
     
 
 ### Multiprocessing
 
-To run a single lap sim including dynamic post-processor will be single-threaded
+To run a single lap sim including dynamic post-processor will be single-threaded only
 
-Optimisation can then utilise multiprocessing to run multiple lap sims concurrently
+Optimisation will utilise multiprocessing to run multiple lap sims concurrently
 
 ### Variable Conventions
 
@@ -155,63 +157,214 @@ Variable name conventions:
 
 - Units not applicable → camelCase
 - Units applicable → 1st part describes the unit (lower and/or upper case), 2nd part is the quantity (in PascalCase)
+- Multiple units applicable → 1st part describes the units with each unit separated by an underscore ‘_’, 2nd part is the quantity (in PascalCase)
 
-| **Character** | **Unit(s)** | **Sign Convention for Positive** |
-| --- | --- | --- |
-| a | Acceleration (m/s^2) | Forwards |
-| A | Angle (rad)
+**A**
 
-Area (m^2) | Anti-clockwise, unless heading angle in which case clockwise
-N/A |
-| b |  |  |
-| B | Boolean (-, 1 for True 0 for False) | N/A |
-| c |  |  |
-| C |  |  |
-| d | Time-derivative modifier (/s, e.g. dmFuel for mass flow rate of fuel) | Increasing with time |
-| D |  |  |
-| e | Efficiency (1, as a ratio) | N/A |
-| E | Energy (J) | N/A |
-| f | Frequency (Hz) | N/A |
-| F | Force (N) | Depends |
-| g |  |  |
-| G |  |  |
-| h | Relative height (m) | Higher relative height |
-| H |  |  |
-| i |  |  |
-| I | Current (A) | N/A |
-| j |  |  |
-| J |  |  |
-| k | Curvature (1/m) | Curving to the left |
-| K | Spring constant (N/m) | N/A |
-| l | Length (m) | N/A |
-| L |  |  |
-| m | Mass (kg) | N/A |
-| M | Torque/moment (Nm) | Follow right-hand rule |
-| n | Number (1, e.g. nGear for the gear number) | N/A |
-| N |  |  |
-| o |  |  |
-| O |  |  |
-| p | Pressure (Pa) | N/A |
-| P | Power (W) | N/A |
-| q |  |  |
-| Q |  |  |
-| r | Ratio (1) | N/A |
-| R | Resistance (ohm) | N/A |
-| s | Distance/displacement (e.g. sLap) | Forwards |
-| S |  |  |
-| t | Time (s) | Forwards |
-| T | Temperature (K or degC idk which one yet) | N/A |
-| u |  |  |
-| U |  |  |
-| v | Speed (m/s) | N/A |
-| V | Volume (m^3)
-Voltage (V) | N/A
-N/A |
-| w | Angular velocity (rad/s) | Anti-clockwise |
-| W |  |  |
-| x | X-coordinate (m) | Forwards in car coordinates, east in track coordinates |
-| X |  |  |
-| y | Y-coordinate (m) | Left in car coordinates, north in track coordinates |
-| Y |  |  |
-| z | Z-coordinate (m) | Up |
-| Z |  |  |
+- Angle (rad) - positive anti-clockwise unless heading angle, in which case clockwise
+- Area (m^2)
+
+**a**
+
+- Acceleration (m/s^2) - positive forwards
+
+**B**
+
+- Boolean - 1 for true, 0 for false
+
+**b**
+
+- N/A
+
+**C**
+
+- Coefficient (1)
+
+**c**
+
+- N/A
+
+**D**
+
+- N/A
+
+**d**
+
+- Time-derivative modifier (/s) - positive increasing with time
+
+**E**
+
+- Energy (J)
+
+**e**
+
+- Efficiency (1, as a ratio)
+
+**F**
+
+- Force (N)
+
+**f**
+
+- Frequency (Hz)
+
+**G**
+
+- N/A
+
+**g**
+
+- N/A
+
+**H**
+
+- N/A
+
+**h**
+
+- Relative height (m) - positive higher
+
+**I**
+
+- Current (A)
+
+**i**
+
+- N/A
+
+**J**
+
+- N/A
+
+**j**
+
+- N/A
+
+**K**
+
+- Spring constant (N/m)
+
+**k**
+
+- Curvature (1/m) - positive curving to the left
+
+**L**
+
+- N/A
+
+**l**
+
+- Length (m)
+
+**M**
+
+- Torque/moment (Nm) - positive for forwards driving torque, negative for braking torque, otherwise follows right-hand rule
+
+**m**
+
+- Mass (kg)
+
+**N**
+
+- N/A
+
+**n**
+
+- Number (1)
+
+**O**
+
+- N/A
+
+**o**
+
+- N/A
+
+**P**
+
+- Power (W)
+
+**p**
+
+- Pressure (Pa)
+
+**Q**
+
+- N/A
+
+**q**
+
+- N/A
+
+**R**
+
+- Resistance (ohm)
+
+**r**
+
+- Ratio (1)
+
+**S**
+
+- N/A
+
+**s**
+
+- Distance/displacement (m) - positive in the direction of forwards travel
+
+**T**
+
+- N/A
+
+**t**
+
+- Time (s) - positive forwards in time
+
+**U**
+
+- N/A
+
+**u**
+
+- N/A
+
+**V**
+
+- Volume (m^3)
+- Voltage (V)
+
+**v**
+
+- Speed (m/s)
+
+**W**
+
+- N/A
+
+**w**
+
+- Angular velocity (rad/s) - positive anti-clockwise
+
+**X**
+
+- N/A
+
+**x**
+
+- x coordinate (m) - positive forwards if car coordinates, positive east if track coordinates
+
+**Y**
+
+- N/A
+
+**y**
+
+- y coordinate (m) - positive left if car coordinates, positive north if track coordinates
+
+**Z**
+
+- N/A
+
+**z**
+
+- z coordinate (m) - positive upwards

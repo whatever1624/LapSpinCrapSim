@@ -2,25 +2,168 @@
 
 # Type Aliases
 
-A collection of aliases to make type hinting easier and more readable, particularly for type hinting numpy arrays
+A collection of aliases to simplify type hinting.
 
-# Miscellaneous Functions
+This is primarily to make type hinting NumPy arrays easier.
 
-### `wrap()`
+# Utils
 
-Wraps value(s) between the lower (inclusive) and upper (exclusive) bounds
+A collection of helper functions commonly used by the other modules.
 
-Supports NumPy arrays as arguments
+## `wrap()`
 
-## `sideOfLine()`
+Wraps value(s) between the lower (inclusive) and upper (exclusive) bounds.
 
-Finds which side of the line the point `[xp, yp]` is, where the line is from `[x1, y1]` to `[x2, y2]` in that direction
+Supports `x` as a NumPy array of values to be wrapped.
 
-## `rotateVector2D()`
+**Arguments:**
 
-Rotates the 2D vector anti-clockwise by theta radians
+- `x`: Float or NumPy array of floats to wrap.
+- `lowerBound`: Lower bound for the wrapping. This bound is inclusive.
+- `upperBound`: Upper bound for the wrapping. This bound is exclusive.
 
-# Optimisation Progress Tracking
+**Returns:**
+
+If the argument x passed in was a float, returns the wrapped float of x.
+
+If the argument x passed in was a NumPy array of floats, returns an array of floats in same shape where each element is wrapped.
+
+## `linearInterpExtrap()`
+
+Linearly interpolate or extrapolate at the point `x` from the closest 2 data points defined by `xp`, `fp`.
+
+Able to compute linear extrapolation unlike NumPy interp(). For computing single points, faster than NumPy interp() if there is a reasonable chance (>15%) that the point will be calculated using the first pair or last pair of data points.
+
+**Arguments:**
+
+- `x`: x coordinate to evaluate the extrapolated function
+- `xp`: x coordinates of the function. Must contain 2 or more elements and be monotonically increasing (though not validated explicitly).
+- `fp`: Function values corresponding to the x coordinates of `xp`. Must be the same size as `xp`.
+
+**Returns:**
+
+Extrapolated function at point `x`.
+
+## `getHeading()`
+
+Calculates the heading angle(s) of the vector(s), only in the [x, y] plane.
+
+Supports `xy_xyz` as a NumPy array of coordinates.
+
+**Arguments:**
+
+- `xy_xyz`: Vector or NumPy array of vectors, where each vector is in the form [x, y] or [x, y, z].
+
+**Returns:**
+
+Heading angle (if `xy_xyz` was a 1D array) or NumPy array of heading angles (if `xy_xyz` was a 2D array).
+
+The heading angle is from -pi to pi radians, increasing clockwise with 0 corresponding to the direction [0, 1].
+
+**Raises:**
+
+- `ValueError`: If the argument `xy_xyz` doesn’t have a dimension of 1 or 2.
+
+## `resample()`
+
+Resamples the signal at the frequency specified.
+
+**Arguments:**
+
+- `signal`: Signal, can be temporal or spatial.
+- `tsSignal`: Temporal or spatial base that the signal was sampled on. Must be monotonically increasing.
+- `fResample`: Resample rate of the signal, in Hz (if temporal) or cycles/m (if spatial).
+- `BExtrapolate`: Whether to (linearly) extrapolate the signal such that the resampled signal contains the full temporal or spatial range of the original signal. If false, truncates the resampled signal at the closest resampling point to the end of the original signal.
+
+**Returns:**
+
+Tuple of (`signalResampled`, `tsResampled`).
+
+- `signalResampled`: Resampled signal.
+- `tsResampled`: New temporal or spatial base of the resampled signal.
+
+## `filt()`
+
+Filters the signal using a Butterworth filter.
+
+**Arguments:**
+
+- `signal`: Signal, can be temporal or spatial, but must be sampled at regular intervals.
+- `fSample`: Sample rate of the signal in Hz (if temporal) or cycles/m (if spatial).
+- `filtType`: Type of filter, must be one of the strings supported by the `btype` argument for the SciPy `butter()` function - but to simplify, the options are `'low'`, `'high'`, `'bandpass'`, `'bandstop'`.
+- `fCutoff`: Cutoff frequency (if low or high-pass filter) or frequencies in the form [fCutoffLow, fCutoffHigh] (if band-pass or band-stop filter). In Hz (if temporal) or cycles/m (if spatial).
+- `nOrder`: Order of the filter.
+
+**Returns:**
+
+Filtered signal, as a NumPy array.
+
+## `getIndsWithoutConsecutiveDuplicates()`
+
+Returns the indexes of the array that omit elements that would cause consecutive duplicates.
+
+**Arguments:**
+
+- `arr`: List or array. Data type must be compatible with the NumPy function `diff()`.
+- `axis`: Axis along which to check for consecutive duplicates, defaults to
+the last axis.
+
+**Returns:**
+
+Array with the indexes that omit elements causing consecutive duplicates along the axis specified.
+
+## `removeConsecutiveDuplicates()`
+
+Returns the array with consecutive duplicates removed along the axis specified.
+
+Effectively a wrapper around `getIndsWithoutConsecutiveDuplicates()`.
+
+**Arguments:**
+
+- `arr`: List or array. Data type must be compatible with the NumPy function `diff()`.
+- `axis`: Axis along which to check for consecutive duplicates, defaults to
+the last axis.
+
+**Returns:**
+
+Array with the consecutive duplicates removed along the axis specified.
+
+## `rotateVectorHeading()`
+
+Rotates the vector clockwise in the 2D plane [x, y] by theta radians.
+
+Supports both [x, y] and [x, y, z] coordinates as inputs - but does not change the z component of the vector even if provided.
+
+**Arguments:**
+
+- `xy_xyz`: NumPy array in the form [x, y] or [x, y, z] representing the 2D vector.
+- `theta`: Angle in radians to rotate the vector, clockwise on the 2D plane [x, y].
+
+**Returns:**
+
+NumPy array representing the rotated vector, in the form [x*, y*] (if provided a 2D vector) or [x*, y* z] (if provided a 3D vector).
+
+## `getSideOfLine()`
+
+Finds which side of the line that the specified point is.
+
+Supports both [x, y] and [x, y, z] coordinates as inputs - but only computes in the 2D [x, y] plane.
+
+**Arguments:**
+
+- `xy_xyzPoint`: Coordinate of the point, in the form [x, y] or [x, y, z].
+- `xy_xyzLineStart`: Coordinate of the start of the line, in the form [x, y] or [x, y, z].
+- `xy_xyzLineEnd`: Coordinate of the end of the line, in the form [x, y] or [x, y, z].
+
+**Returns:**
+
+0 if all coordinates are collinear (on the same straight line).
+
+>0 if the point is on the right of the line.
+
+< 0 if the point is on the left of the line.
+
+# Optimisation Progress Tracking (OLD)
 
 ## Storing Optimisation Progress Data
 
@@ -35,7 +178,7 @@ A global dictionary storing the optimisation progress data
 | `BestResults` | List of floats | Values of the best result so far up to that point corresponding to each time the evaluation function was run |
 | `BestInputs` | Array of floats | Input vector to the objective function that gave the best result up to that point |
 
-# Live Plotting
+# Live Plotting (OLD)
 
 ## Storing Plot Data
 

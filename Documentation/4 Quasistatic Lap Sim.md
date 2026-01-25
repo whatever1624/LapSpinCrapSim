@@ -1,5 +1,13 @@
 # 4 Quasistatic Lap Sim
 
+Plan is develop this in the following steps:
+
+- Point mass implemented in Python, in 3D with a basic “tyre” model to capture induced rolling resistance from slip angle - mostly for me to have some maths practice and understand the basic equations
+- Point mass implemented in Modelica - replicating the Python implementation to validate Modelica FMU for the vehicle model, which will make extensions to the vehicle model significantly easier
+- Bicycle model implemented in Modelica
+- 4-tyre model implemented in Modelica
+- more complex stuff all in Modelica, ideally I can reuse the same vehicle model for both QS and dynamic modules, just with different wrappers
+
 At the edge of the GGV envelope if:
 
 - Max throttle input
@@ -16,7 +24,7 @@ Therefore, at the edge of the GGV envelope when the minimum of:
 - RL tyre gradient ratio (both long and lat)
 - RR tyre gradient ratio (both long and lat)
 
-equals 0 → so a root finding algorithm can be used which should be faster than a general minimisation algorithm
+equals 0 → so a root finding algorithm can be used which should be faster than a general minimisation algorithm (unless there’s a possibility for weird edge cases)
 
 # PointMass
 
@@ -38,7 +46,7 @@ Contains:
 
 # BicycleModel
 
-Aero models define with aero maps and use linear interpolation (if out of bounds then use nearest neighbour interpolation)
+Aero model defined with aero maps and use linear interpolation (if out of bounds then use nearest neighbour interpolation)
 
 Use dimensions:
 
@@ -46,8 +54,8 @@ Use dimensions:
 - Front ride height
 - Rear ride height
 - Roll angle
-- Yaw angle
-- Vehicle speed
+- Yaw angle relative to oncoming air
+- Relative air speed
 
 And calculate:
 
@@ -57,4 +65,4 @@ And calculate:
 - Side force (acting on CG)
 - Aero yaw moment
 
-QS ride model solve for 0 force residuals given the pitch acceleration of the chassis dictated by the trajectory dSlope/ds and longitudinal acceleration
+QS ride model solve for 0 force residuals given the pitch acceleration of the chassis dictated by the trajectory vertical curvature and longitudinal acceleration

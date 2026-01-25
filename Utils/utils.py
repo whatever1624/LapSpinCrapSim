@@ -35,99 +35,6 @@ def wrap(x: float | NDArrayFloat1D | NDArrayFloat2D,
     return lowerBound + ((x - lowerBound) % (upperBound - lowerBound))
 
 
-def getHeading(xy_xyz: NDArrayFloat1D | NDArrayFloat2D,
-               BZeroCentred: bool = False) -> float | NDArrayFloat1D:
-    """
-    Calculates the heading angle(s) of the vector(s), only in the [x, y] plane.
-
-    Supports xy_xyz as a NumPy array of coordinates.
-
-    Args:
-        xy_xyz: Vector or NumPy array of vectors, where each vector is in the
-            form [x, y] or [x, y, z].
-        BZeroCentred: Flag for whether the returned heading should be centred
-            around 0 (therefore heading angle from -pi to pi radians), centred
-            around pi (therefore heading angle from 0 to 2 pi radians).
-
-    Returns:
-        Heading angle (if xy_xyz was a 1D array) or NumPy array of heading
-        angles (if xy_xyz was a 2D array). The heading angle increases clockwise
-        with 0 corresponding to the direction [0, 1]. The bounds of the heading
-        angle are determined by the flag BZeroCentred.
-
-    Raises:
-        ValueError: Invalid argument xy_xyz of dimension {ndim}: must be 1D or
-            2D
-    """
-
-    # Get x and y coordinates
-    ndim = xy_xyz.ndim
-    if ndim == 1:
-        x = xy_xyz[0]
-        y = xy_xyz[1]
-    elif ndim == 2:
-        x = xy_xyz[:, 0]
-        y = xy_xyz[:, 1]
-    else:
-        raise ValueError(f"Invalid argument xy_xyz of dimension {ndim}: must be 1D or 2D")
-
-    # Calculate heading angle(s)
-    AHeading = np.arctan2(x, y)
-
-    # If not BZeroCentred, wrap heading angle(s) from 0 to 2 pi
-    if not BZeroCentred:
-        AHeading = wrap(AHeading, 0, 2 * np.pi)
-
-    return AHeading
-
-
-def filt(signal: list[float] | NDArrayFloat1D,
-         fSample: float,
-         filtType: Literal['low', 'high', 'bandpass', 'bandstop'],
-         fCutoff: float | list[float] | NDArrayFloat1D,
-         nOrder: int) -> NDArrayFloat1D:
-    """
-    Filters the signal using a Butterworth filter.
-
-    Args:
-        signal: Signal, can be temporal or spatial, but must be sampled at
-            regular intervals.
-        fSample: Sample rate of the signal in Hz (if temporal) or cycles/m
-            (if spatial).
-        filtType: Type of filter, must be one of the strings supported by SciPy
-            butter() btype - but to simplify, the options are 'low', 'high',
-            'bandpass', 'bandstop'.
-        fCutoff: Cutoff frequency (if low or high-pass filter) or frequencies in
-            the form [fCutoffLow, fCutoffHigh] (if band-pass or band-stop
-            filter). In Hz (if temporal) or cycles/m (if spatial).
-        nOrder: Order of the filter.
-
-    Returns:
-        Filtered signal, as a NumPy array.
-    """
-    # Set the first and last points of the signal to the average of the first/last 10 points - to help the odd padding type work sensibly
-    signal = signal.copy()
-    signal[0] = np.mean(signal[:10])
-    signal[-1] = np.mean(signal[-10:])
-
-    # Calculate the filter padlen as the number of samples in 5 cycles of the (lowest) cutoff frequency
-    # This is to avoid flattened artifacts at the start/end of the signal with a low-pass filter
-    fCutoffLower = fCutoff if np.isscalar(fCutoff) else min(fCutoff)
-    padlen = int(min(np.ceil(5 * fSample / fCutoffLower), len(signal) - 1))
-
-    # If there is a low-pass component to the filter, set the first and last points to the average of the first/last cycle at the cutoff frequency
-    if 'h' not in filtType:
-        nPoints = min(int(fSample / fCutoffLower), len(signal))
-        signal[0] = np.mean(signal[:nPoints])
-        signal[-1] = np.mean(signal[-nPoints:])
-
-    # Filter the signal
-    sos = scipy.signal.butter(nOrder, fCutoff, filtType, output='sos', fs=fSample)
-    signalFilt = scipy.signal.sosfiltfilt(sos, signal, padlen=padlen)
-
-    return signalFilt
-
-
 def linearInterpExtrap(x: float,
                        xp: list[float] | NDArrayNumber1D,
                        fp: list[float] | NDArrayNumber1D) -> float:
@@ -163,6 +70,43 @@ def linearInterpExtrap(x: float,
 
     # Calculate the linear extrapolation
     return fp[0] + (x - xp[0]) * (fp[1] - fp[0]) / (xp[1] - xp[0])
+
+
+def getHeading(xy_xyz: NDArrayFloat1D | NDArrayFloat2D) -> float | NDArrayFloat1D:
+    """
+    Calculates the heading angle(s) of the vector(s), only in the [x, y] plane.
+
+    Supports xy_xyz as a NumPy array of coordinates.
+
+    Args:
+        xy_xyz: Vector or NumPy array of vectors, where each vector is in the
+            form [x, y] or [x, y, z].
+
+    Returns:
+        Heading angle (if xy_xyz was a 1D array) or NumPy array of heading
+        angles (if xy_xyz was a 2D array). The heading angle is from -pi to pi
+        radians, increasing clockwise with 0 corresponding to the direction
+        [0, 1].
+
+    Raises:
+        ValueError: If the argument xy_xyz doesn’t have a dimension of 1 or 2.
+    """
+
+    # Get x and y coordinates
+    ndim = xy_xyz.ndim
+    if ndim == 1:
+        x = xy_xyz[0]
+        y = xy_xyz[1]
+    elif ndim == 2:
+        x = xy_xyz[:, 0]
+        y = xy_xyz[:, 1]
+    else:
+        raise ValueError(f"Invalid argument xy_xyz of dimension {ndim}: must be 1D or 2D")
+
+    # Calculate heading angle(s)
+    AHeading = np.arctan2(x, y)
+
+    return AHeading
 
 
 def resample(signal: list[float] | NDArrayFloat1D,
@@ -208,16 +152,58 @@ def resample(signal: list[float] | NDArrayFloat1D,
     return signalResampled, tsResampled
 
 
+def filt(signal: list[float] | NDArrayFloat1D,
+         fSample: float,
+         filtType: Literal['low', 'high', 'bandpass', 'bandstop'],
+         fCutoff: float | list[float] | NDArrayFloat1D,
+         nOrder: int) -> NDArrayFloat1D:
+    """
+    Filters the signal using a Butterworth filter.
+
+    Args:
+        signal: Signal, can be temporal or spatial, but must be sampled at
+            regular intervals.
+        fSample: Sample rate of the signal in Hz (if temporal) or cycles/m
+            (if spatial).
+        filtType: Type of filter, must be one of the strings supported by the
+            btype argument for the SciPy butter() function - but to simplify,
+            the options are 'low', 'high', 'bandpass', 'bandstop'.
+        fCutoff: Cutoff frequency (if low or high-pass filter) or frequencies in
+            the form [fCutoffLow, fCutoffHigh] (if band-pass or band-stop
+            filter). In Hz (if temporal) or cycles/m (if spatial).
+        nOrder: Order of the filter.
+
+    Returns:
+        Filtered signal, as a NumPy array.
+    """
+    # Calculate the filter padlen as the number of samples in 5 cycles of the (lowest) cutoff frequency
+    # This is to avoid flattened artifacts at the start/end of the signal with a low-pass filter
+    fCutoffLower = fCutoff if np.isscalar(fCutoff) else min(fCutoff)
+    padlen = int(min(np.ceil(5 * fSample / fCutoffLower), len(signal) - 1))
+
+    # If there is a low-pass component to the filter, set the first and last points to the average of the first/last half-cycle at the cutoff
+    # frequency
+    if 'h' not in filtType:
+        nPoints = min(int(fSample / fCutoffLower / 2), len(signal))
+        signal[0] = np.mean(signal[:nPoints])
+        signal[-1] = np.mean(signal[-nPoints:])
+
+    # Filter the signal
+    sos = scipy.signal.butter(nOrder, fCutoff, filtType, output='sos', fs=fSample)
+    signalFilt = scipy.signal.sosfiltfilt(sos, signal, padlen=padlen)
+
+    return signalFilt
+
+
 def getIndsWithoutConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, ...], np.dtype[Any]],
                                         axis: int = -1) -> np.ndarray[tuple[Any, ...], np.dtype[np.integer]]:
     """
     Returns the indexes of the array that omit elements that would cause
     consecutive duplicates.
 
-    Based on https://stackoverflow.com/a/37840467.
-
     Args:
-        arr: List or array. Data type must be compatible with np.diff().
+        arr: List or array. Data type must be compatible with the NumPy function
+            diff().
         axis: Axis along which to check for consecutive duplicates, defaults to
             the last axis.
 
@@ -230,20 +216,20 @@ def getIndsWithoutConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, .
         diff = np.any(diff, axis=-1)
     return np.append(0, np.where(diff)[0] + 1)
 
+
 def removeConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, ...], np.dtype[Any]],
                                 axis: int = -1) -> np.ndarray[tuple[Any, ...], np.dtype[Any]]:
     """
     Returns the array with consecutive duplicates removed along the axis
     specified.
 
-    Uses getIndsWithoutConsecutiveDuplicates() which is based on
-    https://stackoverflow.com/a/37840467.
+    Effectively a wrapper around getIndsWithoutConsecutiveDuplicates().
 
     Args:
-        arr: List or array to remove the consecutive duplicates from. Data type
-            must be compatible with np.diff().
-        axis: Axis along which to remove the consecutive duplicates from,
-            defaults to the last axis.
+        arr: List or array. Data type must be compatible with the NumPy function
+            diff().
+        axis: Axis along which to check for consecutive duplicates, defaults to
+            the last axis.
 
     Returns:
         Array with the consecutive duplicates removed along the axis specified.
@@ -281,9 +267,7 @@ def getSideOfLine(xy_xyzPoint: list[float] | NDArrayFloat1D | tuple[float, float
                   xy_xyzLineStart: NDArrayFloat1D,
                   xy_xyzLineEnd: NDArrayFloat1D) -> float:
     """
-    Returns a positive number if the point is on the left of the line, or a
-    negative number if the point is on the right of the line, where "left" and
-    "right" are referenced to the 2D plane [x, y].
+    Finds which side of the line that the specified point is.
 
     Supports both [x, y] and [x, y, z] coordinates as inputs - but only computes
     in the 2D [x, y] plane.
