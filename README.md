@@ -186,7 +186,7 @@ Variable name conventions:
 
 **D**
 
-- N/A
+- Density (kg/m^3)
 
 **d**
 
@@ -258,7 +258,7 @@ Variable name conventions:
 
 **M**
 
-- Torque/moment (Nm) - positive for forwards driving torque, negative for braking torque, otherwise follows right-hand rule
+- Moment/torque (Nm) - positive for forwards driving torque, negative for braking torque, otherwise follows right-hand rule
 
 **m**
 
@@ -314,7 +314,7 @@ Variable name conventions:
 
 **T**
 
-- N/A
+- Temperature (K)
 
 **t**
 
