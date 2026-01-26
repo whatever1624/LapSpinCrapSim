@@ -288,3 +288,117 @@ def getSideOfLine(xy_xyzPoint: list[float] | NDArrayFloat1D | tuple[float, float
     """
     return (((xy_xyzPoint[0] - xy_xyzLineStart[0]) * (xy_xyzLineEnd[1] - xy_xyzLineStart[1]))
             - ((xy_xyzPoint[1] - xy_xyzLineStart[1]) * (xy_xyzLineEnd[0] - xy_xyzLineStart[0])))
+
+def convertUnits(data: float | NDArrayFloat1D,
+                 currentUnit: str,
+                 newUnit: str = '') -> float | NDArrayFloat1D:
+    """
+    Convert data between units.
+
+    Args:
+        data: Data to convert between units.
+        currentUnit: Unit of the data passed in.
+        newUnit: Unit to convert the data to. If not provided, uses the SI unit.
+
+    Returns:
+        Data converted to the new unit. This will be a float if the argument
+        data passed in was a float, or a 1D NumPy array of floats if the
+        argument data passed in was a 1D NumPy array of floats.
+
+    Raises:
+        ValueError1: If the 'newUnit' argument is not found in the conversion
+            dictionary matching the 'currentUnit' argument.
+        ValueError2: If the 'currentUnit' argument is not found in any of the
+            conversion dictionaries.
+    """
+    # Each value in this dictionary is itself a dictionary, where each key-value pair is the unit and conversion
+    # The conversion is a tuple in the form (multiplier, offset), which applied as (data * multiplier) + offset, converts to SI from the unit
+    # The SI unit will always have the conversion (1, 0)
+    # The nested dictionaries are ordered such that SI units/SI prefixes are first, and then ordered by the conversion factor
+    SI = (1, 0)
+    conversionsDict: dict[str, dict[str, tuple[float, float]]] = {
+        'Angle': {'rad': SI,
+                  'deg': (np.pi / 180, 0)},
+
+        'Area': {'m2': SI,
+                 'm^2': SI},
+
+        'Acceleration': {'m/s2': SI,
+                         'G': (9.81, 0)},
+
+        'Density': {'kg/m3': SI},
+
+        'Energy': {'J': SI,
+                   'kJ': (1e3, 0),
+                   'MJ': (1e6, 0)},
+
+        'Force': {'N': SI},
+
+        'Frequency': {'Hz': SI},
+
+        'Length': {'mm': (1e-3, 0),
+                   'm': SI,
+                   'km': (1e3, 0)},
+
+        'Torque': {'Nm': SI,
+                   'N.m': SI},
+
+        'Mass': {'kg': SI},
+
+        'Power': {'W': SI,
+                  'kW': (1e3, 0),
+                  'hp': (745.699872, 0),
+                  'HP': (745.699872, 0)},
+
+        'Pressure': {'Pa': SI,
+                     'kPa': (1e3, 0),
+                     'bar': (1e5, 0),
+                     'psi': (6894.76, 0),
+                     'PSI': (6894.76, 0)},
+
+        'Ratio': {'%': (0.01, 0),
+                  '1': SI},
+
+        'Temperature': {'K': SI,
+                        'C': (1, 273.15),
+                        'degC': (1, 273.15)},
+
+        'Time': {'s': SI},
+
+        'Volume': {'m3': SI,
+                   'l': (1e3, 0),
+                   'L': (1e3, 0)},
+
+        'Speed': {'m/s': SI,
+                  'km/h': (1 / 3.6, 0),
+                  'kph': (1 / 3.6, 0)},
+
+        'Angular velocity': {'rad/s': SI,
+                             'deg/s': (np.pi / 180, 0),
+                             'rpm': (np.pi / 30, 0),
+                             'RPM': (np.pi / 30, 0)}}
+
+    # Find the quantity (conversion dictionary to use) by matching the currentUnit argument
+    for conversionDict in conversionsDict.values():
+        if currentUnit in conversionDict:
+            # Conversion dictionary found, convert the data to SI
+            multiplier, offset = conversionDict[currentUnit]
+            data = (data * multiplier) + offset
+
+            # Check if the default SI unit should be returned (if newUnit is '', which it defaults to if not passed)
+            if newUnit == '':
+                return data
+
+            # Get the conversion to the new unit and convert the data to the new unit if the conversion was found, otherwise raise an error
+            multiplier, offset = conversionDict.get(newUnit, (None, None))
+            if multiplier is not None and offset is not None:
+                return (data - offset) / multiplier
+            else:
+                raise ValueError(f"'newUnit' argument of '{newUnit}' not supported for 'currentUnit' argument of '{currentUnit}'")
+
+    # Match not found for the currentUnit argument
+    if currentUnit == '':
+        # Return data unchanged if the current unit was just a blank string
+        return data
+    else:
+        raise ValueError(f"'{currentUnit}' is not a supported unit by the convertUnits() function")

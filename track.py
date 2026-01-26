@@ -1200,7 +1200,7 @@ class Track:
                     if entry.name in limitFileNames or (entry.name.startswith(EXTRA_COORDS_FILENAME_PREFIX) and entry.name.endswith('.csv')):
                         # Coordinate array csv file, read the coordinates to the relevant key in xyzCoordArraysDict
                         key = entry.name[3:-4] if entry.name in limitFileNames else entry.name[len(EXTRA_COORDS_FILENAME_PREFIX):-4]
-                        xyzCoordsDict[key] = np.genfromtxt(entry, dtype=float, delimiter=',')
+                        xyzCoordsDict[key] = np.loadtxt(entry, dtype=float, delimiter=',')
 
                     elif entry.name == EVENT_GATES_FILENAME:
                         # Event data tsv file, read it and initialise each event gate to append to the eventGates list

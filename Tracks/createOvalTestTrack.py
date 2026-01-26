@@ -2,21 +2,25 @@
 Script to generate a simple oval track for testing.
 
 The generated track:
- - Has banking in T1 from the left soft track limit to the right hard track
-    limit, but flat track in T2
- - Has a very lenient hard track limit on the inside of T2
- - Option to provide extra coordinate arrays
- - Option to add noise to the generated coordinates
- - Option to generate as a closed or open/point-to-point track - with the open
-    track starting at the start of T1 and finishing at the end of T2
- - TODO: Option for custom start and finish gates (with the same locations as
-    the start and end of the point-to-point track)
+    -   Has banking in T1 between the soft track limits, but flat track in T2.
+    -   Has a very lenient hard track limit on the inside of T2.
+    -   Option to provide extra coordinate arrays.
+    -   Option to add noise to the generated coordinates.
+    -   Option to generate as a closed or open/point-to-point track - with the
+        open track starting at the start of T1 and finishing at the end of T2.
+    -   TODO: Option for custom start and finish gates (with the same locations
+              as the start and end of the point-to-point track).
 """
+# Python standard libraries
 import os
+
+# External libraries
 import numpy as np
 import matplotlib.pyplot as plt
+
+# Project python modules
+from Utils.typeAliases import NDArrayFloat2D
 from Utils import utils
-from Utils.typeAliases import Any, ListFloat2D, NDArrayFloat1D, NDArrayFloat2D, NDArrayNumber1D
 
 # Oval track parameters
 saveFolder = r"OvalTestTrack"   # Folder to save the track data files to
