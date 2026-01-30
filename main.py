@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from Utils import utils
 from track import Track
 
-trackTest = Track(r"C:\Users\Willow\Documents\Repos\LapSpinCrapSim\Tracks\SuzukaTest", False, BDebug=False)
+trackTest = Track(r"C:\Users\Willow\Documents\Repos\LapSpinCrapSim\Tracks\SuzukaTest", True, BDebug=False)
 
 fig, axs = plt.subplots(2, 1, layout='constrained')
 zMidList = []

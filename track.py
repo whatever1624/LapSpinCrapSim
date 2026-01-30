@@ -1586,12 +1586,13 @@ class Track:
                         for xInd in xInds:
                             for yInd in yInds:
                                 xy = (xCoords[xInd], yCoords[yInd])
-                                if np.isnan(zMap[yInd, xInd]) or TRACK_PLOT_OVERWRITE_Z:
-                                    # Check if the gate index specified is correct for the specified coordinate
-                                    if (utils.getSideOfLine(xy, xyLineHalfStepPrev[0], xyLineHalfStepPrev[1])
-                                            <= 0 <= utils.getSideOfLine(xy, xyLineHalfStepNext[0], xyLineHalfStepNext[1])):
-                                        # Coordinate xy is between the lines xyLineHalfStepPrev and xyLineHalfStepNext
-                                        zMap[yInd, xInd] = self.mesh[indGate](xy[0], xy[1])
+                                # Check if the gate index specified is correct for the specified coordinate
+                                if (utils.getSideOfLine(xy, xyLineHalfStepPrev[0], xyLineHalfStepPrev[1])
+                                        <= 0 <= utils.getSideOfLine(xy, xyLineHalfStepNext[0], xyLineHalfStepNext[1])):
+                                    # Coordinate xy is between the lines xyLineHalfStepPrev and xyLineHalfStepNext
+                                    z = self.mesh[indGate](xy[0], xy[1])
+                                    if (np.isnan(zMap[yInd, xInd]) or TRACK_PLOT_OVERWRITE_Z) and not np.isnan(z):
+                                        zMap[yInd, xInd] = z
 
                 # Plot filled contours - note that matplotlib expects rows as y, columns as x
                 indsNotNaN = np.invert(np.isnan(zMap))
