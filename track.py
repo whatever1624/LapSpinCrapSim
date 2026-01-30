@@ -32,7 +32,7 @@ EXTRA_COORDS_FILENAME_PREFIX = 'xyzExtra'
 EVENT_GATES_FILENAME = "eventGates.tsv"
 
 # CoordinateArray constants
-LP_FILT_SPATIAL_FREQ = 0.01                     # Low-pass cutoff spatial frequency (cycles/m) - 0.01 to 0.05 seem good (100 to 20 m wavelengths)
+LP_FILT_SPATIAL_FREQ = 0.05                     # Low-pass cutoff spatial frequency (cycles/m) - 0.01 to 0.05 seem good (100 to 20 m wavelengths)
 LP_FILT_ORDER = 1                               # Order of the low-pass filter
 
 # Event constants
@@ -365,8 +365,11 @@ class CoordinateArray:
             nextInd = indsValid[indsIndex] - 1 if BStart else indsValid[indsIndex] + 1
             if BClosedTrack:
                 nextInd: int = int(utils.wrap(nextInd, 0, len(self.sCoords)))
+                BOnDistanceBound = not __inDistanceBounds(self.sCoords[nextInd])
 
-            if not __inDistanceBounds(self.sCoords[nextInd]):
+            # Check if the coordinate is on a distance bound
+            BOnDistanceBound = not __inDistanceBounds(self.sCoords[nextInd]) if 0 <= nextInd < len(self.sCoords) else True
+            if BOnDistanceBound:
                 # On a distance bound (lower bound if indsIndex is 0, upper bound if indsIndex is -1), wrap the bound if the track is closed
                 sBound = sLower if indsIndex == 0 else sUpper
                 if BClosedTrack:
@@ -1790,7 +1793,7 @@ class Track:
                 plt.xlim(xAvg - diff, xAvg + diff)
                 plt.ylim(yAvg - diff, yAvg + diff)
                 plt.legend()
-                plt.pause(0.1)
+                plt.pause(0.01)
 
             # Calculate the rest of the gate attributes
             sCandidateDict = {}
@@ -1829,7 +1832,7 @@ class Track:
                     printStr = f"\tEvent gate of type '{eventGate.event.eventType}'"
                     if eventGate.event.BStart is not None:
                         printStr += f" ({"Start" if eventGate.event.BStart else "Finish"})"
-                    printStr += "\ncontained in the track segment between the previous and current gates"
+                    printStr += "\n\tcontained in the track segment between the previous and current gates"
                     print(printStr)
                     eventGatesContained.append(eventGate)
 
@@ -1888,14 +1891,16 @@ class Track:
 
                     # Check if the finish gate creation event gate is the last gate in the eventGatesContained list
                     indStopEventGate = BStopEventGates.index(True)
-                    if indStopEventGate == len(eventGatesContained):
+                    if indStopEventGate == len(eventGatesContained) - 1:
                         # Finish gate creation event gate is the last gate in the eventGatesContained list
                         if len(eventGatesContained) > 1:
                             # Check if the finish gate creation event gate intersects with the 2nd last gate in the eventGatesContained list
                             if eventGatesContained[-1].xyLine.intersects(eventGatesContained[-2].xyLine):
-                                # Intersection found, remove the finish gate creation event gate from eventGatesContained and sEventGatesContained
+                                # Intersection found, remove the finish gate creation event gate from eventGatesContained, sEventGatesContained and
+                                # eventGates
                                 del eventGatesContained[-1]
                                 del sEventGatesContained[-1]
+                                del eventGates[indStopEventGate]
 
                     else:
                         # Still more event gates after the finish gate creation event gate, remove them from eventGatesContained and
@@ -2007,6 +2012,9 @@ class Track:
                                 raise ValueError(f"Consecutive event gates intersect, see track plot in {trackPath}:\npossible fixes are spacing out "
                                                  f"the event gates more,\nreducing GATE_EXTEND_WIDTH_SOFT or GATE_EXTEND_WIDTH_HARD,\n"
                                                  f"increasing HEADING_ANGLE_THRESHOLD")
+                        else:
+                            # First gate in the gates list shares the same line as the last gate in the gates list, and that is acceptable
+                            BIntersects = False
                     else:
                         # No intersection found
                         BIntersects = False

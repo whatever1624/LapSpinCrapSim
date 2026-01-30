@@ -253,7 +253,7 @@ def rotateVectorHeading(xy_xyz: list[float] | NDArrayFloat1D,
 
     Returns:
         NumPy array representing the rotated vector, in the form [x*, y*] (if
-            provided a 2D vector) or [x*, y* z] (if provided a 3D vector).
+            provided a 2D vector) or [x*, y*, z] (if provided a 3D vector).
     """
     c = np.cos(theta)
     s = np.sin(theta)
@@ -306,13 +306,15 @@ def convertUnits(data: float | NDArrayFloat1D,
         argument data passed in was a 1D NumPy array of floats.
 
     Raises:
-        ValueError1: If the 'newUnit' argument is not found in the conversion
+        ValueError1: If the 'currentUnit' argument is blank but the 'newUnit'
+            argument is not blank.
+        ValueError2: If the 'newUnit' argument is not found in the conversion
             dictionary matching the 'currentUnit' argument.
-        ValueError2: If the 'currentUnit' argument is not found in any of the
+        ValueError3: If the 'currentUnit' argument is not found in any of the
             conversion dictionaries.
     """
     # Each value in this dictionary is itself a dictionary, where each key-value pair is the unit and conversion
-    # The conversion is a tuple in the form (multiplier, offset), which applied as (data * multiplier) + offset, converts to SI from the unit
+    # The conversion is a tuple in the form (multiplier, offset), which applied as (data * multiplier) + offset, converts from the unit to SI
     # The SI unit will always have the conversion (1, 0)
     # The nested dictionaries are ordered such that SI units/SI prefixes are first, and then ordered by the conversion factor
     SI = (1, 0)
@@ -378,6 +380,13 @@ def convertUnits(data: float | NDArrayFloat1D,
                              'rpm': (np.pi / 30, 0),
                              'RPM': (np.pi / 30, 0)}}
 
+    # Return the data unchanged if both newUnit and currentUnit are blank
+    if currentUnit == '':
+        if newUnit == '':
+            return data
+        else:
+            raise ValueError(f"'newUnit' argument provided as '{newUnit}' but 'currentUnit' argument is blank")
+
     # Find the quantity (conversion dictionary to use) by matching the currentUnit argument
     for conversionDict in conversionsDict.values():
         if currentUnit in conversionDict:
@@ -397,8 +406,37 @@ def convertUnits(data: float | NDArrayFloat1D,
                 raise ValueError(f"'newUnit' argument of '{newUnit}' not supported for 'currentUnit' argument of '{currentUnit}'")
 
     # Match not found for the currentUnit argument
-    if currentUnit == '':
-        # Return data unchanged if the current unit was just a blank string
-        return data
-    else:
-        raise ValueError(f"'{currentUnit}' is not a supported unit by the convertUnits() function")
+    raise ValueError(f"'{currentUnit}' is not a supported unit by the convertUnits() function")
+
+def rotateVector3D(xyz: NDArrayFloat1D,
+                   aYaw: float,
+                   aPitch: float,
+                   aRoll: float) -> NDArrayFloat1D:
+    """
+    Rotates a 3D vector in the form [x, y, z] by the yaw, pitch, roll angles,
+    in that order.
+
+    This uses intrinsic rotations with Tait-Bryan angles.
+
+    Args:
+        xyz: NumPy array in the form [x, y, z] representing the 3D vector.
+        aYaw: Yaw angle in radians to rotate the vector, anti-clockwise (follows
+            the right-hand rule). This rotation is applied first.
+        aPitch: Pitch angle in radians to rotate the vector, anti-clockwise
+            (follows the right-hand rule). This rotation is applied second.
+        aRoll: Roll angle in radians to rotate the vector, anti-clockwise
+            (follows the right-hand rule). This rotation is applied last.
+
+    Returns:
+        NumPy array representing the rotated vector, in the form [x*, y*, z*].
+    """
+    cy = np.cos(aYaw)
+    sy = np.sin(aYaw)
+    cp = np.cos(aPitch)
+    sp = np.sin(aPitch)
+    cr = np.cos(aRoll)
+    sr = np.sin(aRoll)
+    rotMatrix = np.array([[cp * cy,                     cp * -sy,                   sp],
+                          [sy * sp * cy + sy * cr,      cy * cr - sy * sp * sr,     cp * -sr],
+                          [sy * sr - cy * sp * cr,      sy * sp * cr + cy * sr,     cp * cr]])
+    return np.matmul(rotMatrix, xyz)
