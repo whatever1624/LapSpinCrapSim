@@ -110,7 +110,7 @@ def getHeading(xy_xyz: NDArrayFloat1D | NDArrayFloat2D) -> float | NDArrayFloat1
 
 
 def resample(signal: list[float] | NDArrayFloat1D,
-             tsSignal: list[float] | NDArrayFloat1D,
+             t_sSignal: list[float] | NDArrayFloat1D,
              fResample: float,
              BExtrapolate: bool = False) -> tuple[NDArrayFloat1D, NDArrayFloat1D]:
     """
@@ -118,7 +118,7 @@ def resample(signal: list[float] | NDArrayFloat1D,
 
     Args:
         signal: Signal, can be temporal or spatial.
-        tsSignal: Temporal or spatial base that the signal was sampled on. Must
+        t_sSignal: Temporal or spatial base that the signal was sampled on. Must
             be monotonically increasing.
         fResample: Resample rate of the signal, in Hz (if temporal) or cycles/m
             (if spatial).
@@ -135,21 +135,21 @@ def resample(signal: list[float] | NDArrayFloat1D,
         tsResampled: New temporal or spatial base of the resampled signal.
     """
     # Create the new base of the resampled signal, only in the interpolating region
-    dtsResample = 1 / fResample
-    tsResampled = np.arange(tsSignal[0], tsSignal[-1], dtsResample)
-    tsResampledNext = tsResampled[-1] + dtsResample
-    if tsResampledNext < tsSignal[-1]:
-        tsResampled = np.append(tsResampled, tsResampledNext)
+    dt_dsResample = 1 / fResample
+    t_sResampled = np.arange(t_sSignal[0], t_sSignal[-1], dt_dsResample)
+    t_sResampledNext = t_sResampled[-1] + dt_dsResample
+    if t_sResampledNext < t_sSignal[-1]:
+        t_sResampled = np.append(t_sResampled, t_sResampledNext)
 
     # Resample the signal
-    signalResampled = np.interp(tsResampled, tsSignal, signal)
+    signalResampled = np.interp(t_sResampled, t_sSignal, signal)
 
     # Calculate the signal extrapolation
     if BExtrapolate:
-        tsResampled = np.append(tsResampled, tsResampledNext)
-        signalResampled = np.append(signalResampled, linearInterpExtrap(tsResampledNext, tsSignal, signal))
+        t_sResampled = np.append(t_sResampled, t_sResampledNext)
+        signalResampled = np.append(signalResampled, linearInterpExtrap(t_sResampledNext, t_sSignal, signal))
 
-    return signalResampled, tsResampled
+    return signalResampled, t_sResampled
 
 
 def filt(signal: list[float] | NDArrayFloat1D,

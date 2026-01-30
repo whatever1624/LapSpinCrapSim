@@ -79,7 +79,8 @@ TRACK_PLOT_MARGIN = 0.75                        # Margin around the track plot a
 TRACK_PLOT_SCALE = 15                           # Scale of the track plot, for adjusting  size of the plot labels, line thicknesses etc. (m/inch)
 TRACK_PLOT_SPATIAL_RESOLUTION = 10              # Spatial resolution of the track plot (pixels/m)
 TRACK_PLOT_ZMAP_SPATIAL_RESOLUTION = 1          # Spatial resolution of the z coordinate map for the track plot (z coordinate points/m)
-TRACK_PLOT_ZMAP_CONTOUR_INTERVALS = 2           # Spacing between contour levels (m)
+TRACK_PLOT_ZMAP_CONTOUR_INTERVALS = 0.1         # Spacing between contour levels (m)
+TRACK_PLOT_ZMAP_MARGIN = 5                      # Margin to minimum and maximum of the colour map (m)
 TRACK_PLOT_OVERWRITE_Z = True                   # If true, overwrites the z coordinates with the values from further along the track, if false then
                                                 # keeps z coordinates that were from earlier points on the track
 
@@ -1543,6 +1544,7 @@ class Track:
             for i, key in enumerate(keyList):
                 xy = xyIntersectionsDict[key]
                 ax.plot(xy[:, 0], xy[:, 1], c=cDict[key], fillstyle=fillList[i], ls='', marker=markerList[i])
+                # TODO: Rotate the markers so they point in the correct direction relative to the track
 
             # Calculate and plot the z coordinates of the track using a colour mesh and contours
             try:
@@ -1594,12 +1596,14 @@ class Track:
                                     if (np.isnan(zMap[yInd, xInd]) or TRACK_PLOT_OVERWRITE_Z) and not np.isnan(z):
                                         zMap[yInd, xInd] = z
 
-                # Plot filled contours - note that matplotlib expects rows as y, columns as x
+                # Plot z coordinate colours and contours - note that matplotlib expects rows as y, columns as x
                 indsNotNaN = np.invert(np.isnan(zMap))
                 zMin = np.floor(np.min(zMap[indsNotNaN]) / TRACK_PLOT_ZMAP_CONTOUR_INTERVALS) * TRACK_PLOT_ZMAP_CONTOUR_INTERVALS
                 zMax = np.ceil(np.max(zMap[indsNotNaN]) / TRACK_PLOT_ZMAP_CONTOUR_INTERVALS) * TRACK_PLOT_ZMAP_CONTOUR_INTERVALS
-                contours = ax.contourf(xCoords, yCoords, zMap, cmap='BuPu_r', vmin=zMin, vmax=zMax,
-                            levels=np.arange(zMin, zMax + TRACK_PLOT_ZMAP_CONTOUR_INTERVALS, TRACK_PLOT_ZMAP_CONTOUR_INTERVALS))
+                levels = np.arange(zMin, zMax + TRACK_PLOT_ZMAP_CONTOUR_INTERVALS, TRACK_PLOT_ZMAP_CONTOUR_INTERVALS)
+                colours = ax.contourf(xCoords, yCoords, zMap, cmap='BuPu_r', antialiased=True, levels=levels,
+                                      vmin=zMin - TRACK_PLOT_ZMAP_MARGIN, vmax=zMax + TRACK_PLOT_ZMAP_MARGIN)
+                contours = ax.contour(xCoords, yCoords, zMap, colors='1', linewidths=0.1, linestyles='solid', antialiased=True, levels=levels)
 
                 # Add colour bar
                 caxWidth = TRACK_PLOT_MARGIN / 4
@@ -1607,6 +1611,7 @@ class Track:
                                     TRACK_PLOT_MARGIN / figHeight,
                                     caxWidth / figWidth,
                                     axHeight / figHeight))
+                fig.colorbar(colours, cax, location='right', extend='neither')
                 fig.colorbar(contours, cax, location='right', extend='neither')
 
                 # Add the legend - reducing the area that the legend can be placed to avoid interfering with the colour bar

@@ -4,44 +4,50 @@ Script to parse Assetto Corsa MoTeC telemetry csv export for coordinates.
 This outputs the coordinate array files in csv format:
     -   'xyzCPFL.csv': Front left contact patch coordinates.
     -   'xyzCPFR.csv': Front right contact patch coordinates.
-    -   'xyzGroundF.csv': Ground-projected front ride height measurement point coordinates.
+    -   'xyzGroundF.csv': Ground-projected front ride height measurement point
+        coordinates.
 
 The option 'shiftCoords' will make all 3 coordinate arrays start on the same
 line passing through the CG - either by rolling the contact patch coordinates
 (if closed track), or discarding the first and last parts of the relevant
 coordinates (if not closed track).
+
+TODO: Convert this to supply the telem files for each limit and it will create
+    the generated csv files
+
+TODO: Then add functionality to automatically generate the start/finish, DRS.
+    sector timing, speed limit (pits) gates etc.
 """
 # Python standard libraries
 import os
 
 # External libraries
 import numpy as np
-import matplotlib.pyplot as plt
 
 # Project python modules
 from Utils import utils
 from track import CLOSED_TRACK_THRESHOLD_DISTANCE
 
 # Telemetry file and coordinates save settings
-telemFileName = r"r8 suzuka.csv"
-saveFolder = r""
+telemFileName = r"C:\Users\Willow\Documents\Repos\LapSpinCrapSim\Tracks\BrandsHatchIndy\LimitRightHard.csv"
+saveFolder = r"C:\Users\Willow\Documents\Repos\LapSpinCrapSim\Tracks\BrandsHatchIndy"
 BRollCoords = True      # Whether to roll coordinates so that all 3 coordinate arrays start/finish roughly where the CG started/finished
                         # Note: Only rolls coordinates if the track is closed (calculated from CLOSED_TRACK_THRESHOLD_DISTANCE of the CG coordinates)
 
 # Vehicle configuration settings - Assetto Corsa vehicle data and setup
-rCG = 0.46              # CG location, CG_LOCATION from suspensions.ini (ratio)
-lWheelbase = 2.7        # Wheelbase, WHEELBASE from suspensions.ini (m)
-lTrackF = 1.680         # Front track width, TRACK from suspensions.ini (to consider the full width of the car, include tyre width to this) (m)
-hOffsetF = -0.110       # Offset from CG for suspension component heights, BASEY from suspensions.ini (m)
-hPickupF = -0.350       # Offset from CG for front ride height, PICKUP_FRONT_HEIGHT from car.ini or 0 if not present (m)
-lRodSetupF = 7          # Front rod length, ROD_LENGTH_XX from the setup (mm - this is converted to m automatically in the script)
+rCG = 0.41              # CG location, CG_LOCATION from suspensions.ini (ratio)
+lWheelbase = 2.650      # Wheelbase, WHEELBASE from suspensions.ini (m)
+lTrackF = 1.515 + 0.180 # Front track width, TRACK from suspensions.ini (add 1 front tyre width to consider the full width of the car) (m)
+hOffsetF = -0.020       # Offset from CG for suspension component heights, BASEY from suspensions.ini (m)
+hPickupF = -0.248       # Offset from CG for front ride height, PICKUP_FRONT_HEIGHT from car.ini or 0 if not present (m)
+lRodSetupF = 40         # Front rod length, ROD_LENGTH_XX from the setup (mm - this is converted to m automatically in the script)
 
 # Parse csv telemetry file
 print("\nParsing telemetry file")
 replaceQuotes = lambda x: x.replace('\"', '')
 channels = np.loadtxt(telemFileName, dtype=str, delimiter=',', converters=replaceQuotes, skiprows=13, max_rows=1)
 units = np.loadtxt(telemFileName, dtype=str, delimiter=',', converters=replaceQuotes, skiprows=14, max_rows=1)
-data = np.loadtxt(telemFileName, dtype=float, delimiter=',', converters=replaceQuotes, skiprows=17, max_rows=1000)
+data = np.loadtxt(telemFileName, dtype=float, delimiter=',', converters=replaceQuotes, skiprows=17)
 
 # Convert data to SI units and organise into a dictionary by channel name
 print("Processing telemetry")
