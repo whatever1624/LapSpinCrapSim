@@ -36,7 +36,7 @@ BAdjustzGroundF = True  # Whether to adjust the z coordinate calculated of the g
 # Vehicle configuration settings - Assetto Corsa vehicle data and setup
 rCG = 0.41              # CG location, CG_LOCATION from suspensions.ini (ratio)
 lWheelbase = 2.650      # Wheelbase, WHEELBASE from suspensions.ini (m)
-lTrackF = 1.515 + 0.180 # Front track width, TRACK from suspensions.ini (add 1 front tyre width to consider the full width of the car) (m)
+lTrackF = 1.515         # Front track width, TRACK from suspensions.ini (add 1 front tyre width to consider the full width of the car) (m)
 hOffsetF = -0.020       # Offset from CG for suspension component heights, BASEY from suspensions.ini (m)
 hPickupF = -0.248       # Offset from CG for front ride height, PICKUP_FRONT_HEIGHT from car.ini or 0 if not present (m)
 lRodSetupF = 40         # Front rod length, ROD_LENGTH_XX from the setup (mm - this is converted to m automatically in the line below)
@@ -57,8 +57,8 @@ def getCoordsFromTelem(telemFile: str | os.PathLike[str]):
     xCG = telemDict['Car Coord X']
     yCG = telemDict['Car Coord Y']
     zCG = telemDict['Car Coord Z']
-    aPitch = telemDict['Chassis Pitch Angle']
-    aRoll = telemDict['Chassis Roll Angle']
+    APitch = telemDict['Chassis Pitch Angle'] * -1                          # AC has inverted pitch
+    ARoll = telemDict['Chassis Roll Angle']
     vxCG = telemDict['Chassis Velocity X']
     vyCG = telemDict['Chassis Velocity Y']
     hF = (telemDict['Ride Height FL'] + telemDict['Ride Height FR']) / 2    # Technically unnecessary since FL and FR both output the same data
@@ -71,27 +71,31 @@ def getCoordsFromTelem(telemFile: str | os.PathLike[str]):
     nData = len(xCG)
     xyzCG = np.vstack((xCG, yCG, zCG)).T
     lAxleF = lWheelbase * (1 - rCG)     # Distance from CG to front axle
-    aSlipChassis = np.atan2(vyCG, vxCG)
-    avxyCG = np.atan2(np.gradient(yCG), np.gradient(xCG))
-    aYaw = avxyCG + aSlipChassis
+    ASlipChassis = np.atan2(vyCG, vxCG)
+    AvxyCG = np.atan2(np.gradient(yCG), np.gradient(xCG))
+    AYaw = AvxyCG + ASlipChassis
 
     def calcTrackCoord(xyzVecConstant: list[float] | NDArrayFloat1D,
-                       zOffsetChannel: NDArrayFloat1D):
+                       zOffsetChannel: NDArrayFloat1D) -> NDArrayFloat1D:
         """
-        Calculates the ground-projected coordinate at a given location on the
-        car, given its vector from the CG and channel of z height from the track
-        at that point.
+        Calculates the ground-projected coordinate derived from a channel of
+        z height from the track in car coordinates.
 
-        # Calculate the ground-projected front ride height coordinates
-        # Get vector (car reference) from CG to front ride height measurement point
-        # Rotate to track reference
-        # Add to CG coordinate to get front left contact patch coordinates in track reference frame
+        First gets the vector in car reference from the CG to the measurement
+        point. Then rotates the vector into the track reference. Finally adds
+        the vector to the CG coordinate.
 
-        TODO: Docstring
+        Args:
+            xyzVecConstant: Vector from the CG to the measurement point, in the
+                car's reference frame and in the form [x, y, z]. This is a
+                constant.
+            zOffsetChannel: Channel of z height from the track, in the car's
+                reference frame. This is positive if the car is higher off the
+                track.
         """
         xyzVecs = np.full_like(xyzCG, xyzVecConstant)
         xyzVecs[:, 2] -= zOffsetChannel
-        xyzVecs = np.array([utils.rotateVector3D(xyzVecs[i], aYaw[i], aPitch[i], aRoll[i]) for i in range(nData)])
+        xyzVecs = np.array([utils.rotateVector3D(xyzVecs[i], ARoll[i], APitch[i], AYaw[i]) for i in range(nData)])
         xyz = xyzCG + xyzVecs
         return xyz
 
@@ -123,7 +127,7 @@ limitFileNames = ('LimitLeftSoft.csv', 'LimitRightSoft.csv', 'LimitLeftHard.csv'
 with os.scandir(telemFolder) as entries:
     for entry in entries:
         if entry.name in limitFileNames or (entry.name.startswith('Extra') and entry.name.endswith('.csv')):
-            # Valid telemetry file, get coordinates as the tuple (xyzCPFL, xyzCPFR, xyzGroundF)
+            # Valid telemetry file, get the coordinate arrays as the tuple (xyzCPFL, xyzCPFR, xyzGroundF)
             xyzCoordsTuple = getCoordsFromTelem(entry)
 
             # Set csv file names

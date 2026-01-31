@@ -409,34 +409,48 @@ def convertUnits(data: float | NDArrayFloat1D,
     raise ValueError(f"'{currentUnit}' is not a supported unit by the convertUnits() function")
 
 def rotateVector3D(xyz: NDArrayFloat1D,
-                   aYaw: float,
+                   aRoll: float,
                    aPitch: float,
-                   aRoll: float) -> NDArrayFloat1D:
+                   aYaw: float) -> NDArrayFloat1D:
     """
-    Rotates a 3D vector in the form [x, y, z] by the yaw, pitch, roll angles,
+    Rotates a 3D vector in the form [x, y, z] by the roll, pitch and yaw angles,
     in that order.
 
     This uses intrinsic rotations with Tait-Bryan angles.
+    See: https://en.wikipedia.org/wiki/Rotation_matrix#In_three_dimensions
 
     Args:
         xyz: NumPy array in the form [x, y, z] representing the 3D vector.
         aYaw: Yaw angle in radians to rotate the vector, anti-clockwise (follows
             the right-hand rule). This rotation is applied first.
-        aPitch: Pitch angle in radians to rotate the vector, anti-clockwise
+        aPitch: Pitch angle in radians to rotate the vector, pitched down
             (follows the right-hand rule). This rotation is applied second.
-        aRoll: Roll angle in radians to rotate the vector, anti-clockwise
+        aRoll: Roll angle in radians to rotate the vector, right-side down
             (follows the right-hand rule). This rotation is applied last.
 
     Returns:
         NumPy array representing the rotated vector, in the form [x*, y*, z*].
     """
-    cy = np.cos(aYaw)
-    sy = np.sin(aYaw)
-    cp = np.cos(aPitch)
-    sp = np.sin(aPitch)
     cr = np.cos(aRoll)
     sr = np.sin(aRoll)
-    rotMatrix = np.array([[cp * cy,                     cp * -sy,                   sp],
-                          [sy * sp * cy + sy * cr,      cy * cr - sy * sp * sr,     cp * -sr],
-                          [sy * sr - cy * sp * cr,      sy * sp * cr + cy * sr,     cp * cr]])
+    cp = np.cos(aPitch)
+    sp = np.sin(aPitch)
+    cy = np.cos(aYaw)
+    sy = np.sin(aYaw)
+    rotMatrix = np.array([[cy * cp,                     cy * sp * sr - sy * cr,     cy * sp * cr + sy * sr],
+                          [sy * cp,                     sy * sp * sr + cy * cr,     sy * sp * cr - cy * sr],
+                          [-sp,                         cp * sr,                    cp * cr]])
+
+    """# Above rotation matrix implementation is the combined version of this
+    rotMatrixRoll = np.array([[1, 0, 0],
+                              [0, cr, -sr],
+                              [0, sr, cr]])
+    rotMatrixPitch = np.array([[cp, 0, sp],
+                               [0, 1, 0],
+                               [-sp, 0, cp]])
+    rotMatrixYaw = np.array([[cy, -sy, 0],
+                             [sy, cy, 0],
+                             [0, 0, 1]])
+    rotMatrix = np.matmul(rotMatrixYaw, np.matmul(rotMatrixPitch, rotMatrixRoll))"""
+
     return np.matmul(rotMatrix, xyz)
