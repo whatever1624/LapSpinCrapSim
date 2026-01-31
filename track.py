@@ -1497,6 +1497,7 @@ class Track:
             #  - Colours: black if no event, green if start gate, red if finish gate
             #  - Line style: Dashed if it is a bad gate, solid otherwise
             #  - Annotation: Index of the gate, name and whether it's the start/finish if it's an event gate
+            keys = ['LimitLeftSoft', 'LimitRightSoft', 'LimitLeftHard', 'LimitRightHard']
             xyIntersectionsDict = {'LimitLeftSoft': np.empty((len(gates), 2)),
                                    'LimitRightSoft': np.empty((len(gates), 2)),
                                    'LimitLeftHard': np.empty((len(gates), 2)),
@@ -1521,29 +1522,25 @@ class Track:
                 ax.plot(gate.xyLine.xy[0], gate.xyLine.xy[1], c=c, ls=ls)
 
                 # Calculate the [x, y] coordinates of the gate's intersections with the track limits coordinate arrays
-                keys = ['LimitLeftSoft', 'LimitRightSoft', 'LimitLeftHard', 'LimitRightHard']
-                xyVecLeft = utils.rotateVectorHeading(np.array([-1, 0]), gate.AHeading)
-                xyVecRight = utils.rotateVectorHeading(np.array([1, 0]), gate.AHeading)
-                xyVecs = [xyVecLeft, xyVecRight, xyVecLeft, xyVecRight]
-                lLimits = [gate.lLimitLeftSoft, gate.lLimitRightSoft, gate.lLimitLeftHard, gate.lLimitRightHard]
+                xyVec = utils.rotateVectorHeading(np.array([1, 0]), gate.AHeading)
+                lLimits = [-gate.lLimitLeftSoft, gate.lLimitRightSoft, -gate.lLimitLeftHard, gate.lLimitRightHard]
                 for j, key in enumerate(keys):
                     if lLimits[j] is not None:
-                        xyIntersectionsDict[key][i] = gate.xyMidpoint + (xyVecs[j] * lLimits[j])
+                        xyIntersectionsDict[key][i] = gate.xyMidpoint + (xyVec * lLimits[j])
                     else:
                         xyIntersectionsDict[key][i] = np.array([xMin, yMin])
 
                 # Annotate the gate
-                xyVecSide = xyVecLeft * gate.lLimitLeftSoft / 2 if annotationSide < 0 else xyVecRight * gate.lLimitRightSoft / 2
+                xyVecSide = xyVec * -gate.lLimitLeftSoft / 2 if annotationSide < 0 else xyVec * gate.lLimitRightSoft / 2
                 ax.annotate(text, (gate.xyMidpoint[0] + xyVecSide[0], gate.xyMidpoint[1] + xyVecSide[1]), ha='center', va='center')
                 annotationSide *= -1
 
             # Plot the track gate intersections with the track limit coordinate arrays
-            keyList = ['LimitLeftSoft', 'LimitRightSoft', 'LimitLeftHard', 'LimitRightHard']
-            markerList = ['<', '>', '<', '>']
-            fillList = ['none', 'none', 'full', 'full']
-            for i, key in enumerate(keyList):
+            markers = ['<', '>', '<', '>']
+            fills = ['none', 'none', 'full', 'full']
+            for i, key in enumerate(keys):
                 xy = xyIntersectionsDict[key]
-                ax.plot(xy[:, 0], xy[:, 1], c=cDict[key], fillstyle=fillList[i], ls='', marker=markerList[i])
+                ax.plot(xy[:, 0], xy[:, 1], c=cDict[key], fillstyle=fills[i], ls='', marker=markers[i])
                 # TODO: Rotate the markers so they point in the correct direction relative to the track
 
             # Calculate and plot the z coordinates of the track using a colour mesh and contours
