@@ -1,13 +1,26 @@
 """
 Script to parse Assetto Corsa MoTeC telemetry csv export for coordinates.
 
-This outputs the coordinate array files in csv format:
-    ...TODO
+Telemetry files that will be parsed into coordinates must be:
+    -   A csv file (file extension .csv) in MoTeC export format.
+    -   Named as one of the track limits 'LimitLeftSoft.csv',
+        'LimitRightSoft.csv', 'LimitLeftHard.csv', 'LimitRightHard.csv'.
+    -   Alternatively, named starting with the prefix 'Extra'.
 
-The option 'shiftCoords' will make all 3 coordinate arrays start on the same
-line passing through the CG - either by rolling the contact patch coordinates
-(if closed track), or discarding the first and last parts of the relevant
-coordinates (if not closed track).
+The coordinate array csv files output will be in the format accepted by the
+track module, and each telemetry file will generate 3 coordinate array files:
+    -   Front left contact patch coordinate, filename ending with 'CPFL.csv'.
+    -   Front right contact patch coordinate, filename ending with 'CPFR.csv'.
+    -   Ground-projected front ride height pickup point coordinate, filename
+        ending with 'GroundF.csv'.
+
+The exceptions to the output naming are the track limit coordinate array csv
+files, which are deduced as the front left/right contact patch coordinate given
+the telemetry file name.
+
+Note: It is recommended to save the MoTeC telemetry with the default/highest
+resolution (most decimal places) - particularly for the track z coordinate
+calculation.
 
 TODO: Add functionality to automatically generate gates for start/finish, DRS,
     sector timing, speed limit (pits) etc.
@@ -70,13 +83,12 @@ def getCoordsFromTelem(telemFile: str | os.PathLike[str]):
     # Get derived data and channels
     nData = len(xCG)
     xyzCG = np.vstack((xCG, yCG, zCG)).T
-    lAxleF = lWheelbase * (1 - rCG)     # Distance from CG to front axle
-    ASlipChassis = np.atan2(vyCG, vxCG)
-    AvxyCG = np.atan2(np.gradient(yCG), np.gradient(xCG))
-    AYaw = AvxyCG + ASlipChassis
+    lAxleF = lWheelbase * (1 - rCG)                             # Distance from CG to front axle
+    AHeadingCG = np.atan2(np.gradient(-yCG), np.gradient(xCG))  # Heading angle of the CG velocity vector in track coordinates
+    ASlipChassis = np.atan2(vyCG, vxCG)                         # Chassis slip angle in car coordinates
 
-    def calcTrackCoord(xyzVecConstant: list[float] | NDArrayFloat1D,
-                       zOffsetChannel: NDArrayFloat1D) -> NDArrayFloat1D:
+    def calcProjectedTrackCoords(xyzVecConstant: list[float] | NDArrayFloat1D,
+                                 zOffsetChannel: NDArrayFloat1D) -> NDArrayFloat1D:
         """
         Calculates the ground-projected coordinate derived from a channel of
         z height from the track in car coordinates.
@@ -92,16 +104,21 @@ def getCoordsFromTelem(telemFile: str | os.PathLike[str]):
             zOffsetChannel: Channel of z height from the track, in the car's
                 reference frame. This is positive if the car is higher off the
                 track.
+
+        Returns:
+            2D NumPy array representing the ground-projected coordinates in
+            track coordinates. Each coordinate is in the form [x, y, z].
         """
         xyzVecs = np.full_like(xyzCG, xyzVecConstant)
         xyzVecs[:, 2] -= zOffsetChannel
-        xyzVecs = np.array([utils.rotateVector3D(xyzVecs[i], ARoll[i], APitch[i], AYaw[i]) for i in range(nData)])
+        for i in range(nData):
+            xyzVecs[i] = utils.rotateVectorHeading(utils.rotateVector3D(xyzVecs[i], ARoll[i], APitch[i], ASlipChassis[i]), AHeadingCG[i])
         xyz = xyzCG + xyzVecs
         return xyz
 
-    xyzGroundF = calcTrackCoord([lAxleF, 0, hPickupF], hF)
-    xyzCPFL = calcTrackCoord([lAxleF, lTrackF / 2, hOffsetF + lRodSetupF], lTyreLoadedRadiusFL - lSuspTravelFL)
-    xyzCPFR = calcTrackCoord([lAxleF, -lTrackF / 2, hOffsetF + lRodSetupF], lTyreLoadedRadiusFR - lSuspTravelFR)
+    xyzGroundF = calcProjectedTrackCoords([lAxleF, 0, hPickupF], hF)
+    xyzCPFL = calcProjectedTrackCoords([lAxleF, lTrackF / 2, hOffsetF + lRodSetupF], lTyreLoadedRadiusFL - lSuspTravelFL)
+    xyzCPFR = calcProjectedTrackCoords([lAxleF, -lTrackF / 2, hOffsetF + lRodSetupF], lTyreLoadedRadiusFR - lSuspTravelFR)
 
     # Roll coordinates backwards by distance to the front axle, only if the setting is enabled and the track is calculated to be closed
     if BRollCoords:
@@ -127,7 +144,10 @@ limitFileNames = ('LimitLeftSoft.csv', 'LimitRightSoft.csv', 'LimitLeftHard.csv'
 with os.scandir(telemFolder) as entries:
     for entry in entries:
         if entry.name in limitFileNames or (entry.name.startswith('Extra') and entry.name.endswith('.csv')):
-            # Valid telemetry file, get the coordinate arrays as the tuple (xyzCPFL, xyzCPFR, xyzGroundF)
+            # Valid telemetry file
+            print(f"Parsing telemetry file: {entry.name}")
+
+            # Get the coordinate arrays as the tuple (xyzCPFL, xyzCPFR, xyzGroundF)
             xyzCoordsTuple = getCoordsFromTelem(entry)
 
             # Set csv file names

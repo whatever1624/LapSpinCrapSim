@@ -12,7 +12,7 @@ First GitHub repo yippee!!!
 
 This is a solo project which I started at the start of the 2025 F1 summer shutdown as a passion project (also to learn how to use Git but that got procrastinated to weeks after shutdown), and I’ve been working on it sporadically since then.
 
-The goal of this project is to be able to optimise trajectory, setup, energy management and other parameters (added through inevitable scope creep), using a quasistatic lap sim as the base.
+The goal of this project is to be able to optimise trajectory, setup, energy management and other parameters (introduced by inevitable scope creep), using a quasistatic lap sim as the base.
 
 Once I have a working proof-of-concept for all/most of the modules then I will start working with branches, but for now there’s no point when the minimum viable product isn’t even ready (minimum viable product for me is a bicycle model lap sim with track elevation, with trajectory optimisation).
 
@@ -46,13 +46,15 @@ Expect a lot of refactoring because I have no clue what I’m doing :D
 
 ## To Do
 
-- Write a script that takes MoTeC csv exported AC telemetry and extract coordinate arrays of the track at coordinates of CG-projected and front tyre contact patches
 - Rework the trajectory module
     - Calculate track limit violations in terms of area violated (i.e. area of the polygon enclosed by the violating part of the trajectory and the track limits
+    - Calculate curvature and slope as lateral curvature and vertical curvature
+    - Distance needs to consider z coordinate
+        - The z coordinate should be low-pass filtered to remove road noise
+    - Do i need xyz of all 4 tyres + CG projected xyz? If so then CG projected xyz should be calculated as the average of the 4 tyre z coordinates (weighted to consider CG location)
+    - Have the option of generating a trajectory from xyz coordinates (i.e. from telemetry) - will have to be heavily low-pass filtered
 
 ## Required External Libraries
-
-**External Libraries**
 
 - **SciPy** - https://docs.scipy.org/doc/scipy/
 - **Shapely** - https://shapely.readthedocs.io/en/stable/
@@ -161,7 +163,10 @@ Variable name conventions:
 
 **A**
 
-- Angle (rad) - positive anti-clockwise unless heading angle, in which case clockwise
+- Angle (rad) - follows the right-hand rule with respect to the xyz coordinates, with heading angle as the exception
+    - Positive anti-clockwise for yaw, positive clockwise for heading angle
+    - Positive pitched down
+    - Positive right-side down for roll
 - Area (m^2)
 
 **a**
@@ -351,7 +356,7 @@ Variable name conventions:
 
 **x**
 
-- x coordinate (m) - positive forwards if car coordinates, positive east if track coordinates
+- x coordinate (m) - positive forwards if car coordinates, positive east if track coordinates, right-handed coordinate system
 
 **Y**
 
@@ -359,7 +364,7 @@ Variable name conventions:
 
 **y**
 
-- y coordinate (m) - positive left if car coordinates, positive north if track coordinates
+- y coordinate (m) - positive left if car coordinates, positive north if track coordinates, right-handed coordinate system
 
 **Z**
 
@@ -367,4 +372,4 @@ Variable name conventions:
 
 **z**
 
-- z coordinate (m) - positive upwards
+- z coordinate (m) - positive upwards, right-handed coordinate system

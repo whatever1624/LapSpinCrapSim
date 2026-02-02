@@ -14,41 +14,7 @@ import matplotlib.pyplot as plt
 from Utils import utils
 from track import Track
 
-trackTest = Track(r"C:\Users\Willow\Documents\Repos\LapSpinCrapSim\Tracks\BrandsHatchIndy", False, BDebug=False)
-
-# Plot track z coordinate along the width of each gate
-lResolution = 0.01
-xPlotRange = 20
-yPlotRange = 5
-fig, ax = plt.subplots(1, 1, layout='constrained')
-for i, gate in enumerate(trackTest.gates):
-    ax.clear()
-
-    # Plot gate intersections with track limits
-    keys = ['LimitLeftSoft', 'LimitRightSoft', 'LimitLeftHard', 'LimitRightHard']
-    markerList = ['<', '>', '<', '>']
-    fillList = ['none', 'none', 'full', 'full']
-    cDict = {'LimitLeftSoft': (1, 0, 0), 'LimitRightSoft': (0, 1, 0), 'LimitLeftHard': (0.5, 0, 0), 'LimitRightHard': (0, 0.5, 0)}
-    xyVec = utils.rotateVectorHeading(np.array([1, 0]), gate.AHeading)
-    lLimits = [-gate.lLimitLeftSoft, gate.lLimitRightSoft, -gate.lLimitLeftHard, gate.lLimitRightHard]
-    for j, key in enumerate(keys):
-        z = trackTest.getTrackZ(gate.xyMidpoint + (xyVec * lLimits[j]), i)
-        ax.plot(lLimits[j], z, c=cDict[key], fillstyle=fillList[j], ls='', marker=markerList[j])
-
-    lList = np.arange(np.floor(-gate.lLimitLeftHard / lResolution) * lResolution,
-                      np.ceil(gate.lLimitRightHard / lResolution) * lResolution + lResolution,
-                      lResolution)
-    indlZero = np.argmin(np.abs(lList))
-    zList = []
-    for l in lList:
-        zList.append(trackTest.getTrackZ(gate.xyMidpoint + (xyVec * l), i))
-    ax.plot(lList, zList)
-    ax.set_xlim((-xPlotRange / 2, xPlotRange / 2))
-    ax.set_ylim((zList[indlZero] - yPlotRange, zList[indlZero] + yPlotRange))
-    plt.pause(0.01)
-
-
-exit()
+trackTest = Track(r"C:\Users\Willow\Documents\Repos\LapSpinCrapSim\Tracks\BrandsHatchIndy", True, BDebug=False)
 
 # Plot track z coordinate, slope and camber at the gate midpoint along the gates
 fig, axs = plt.subplots(2, 1, layout='constrained')
@@ -87,3 +53,34 @@ axs[1].set_ylabel("Track slope and camber (deg)")
 axs[1].set_ylim([-10, 10])
 axs[1].set_xlabel("Gate index")
 plt.show()
+
+# Plot track z coordinate along the width of each gate
+lResolution = 0.01
+xPlotRange = 30
+yPlotRange = 30
+fig, ax = plt.subplots(1, 1, layout='constrained')
+for i, gate in enumerate(trackTest.gates):
+    ax.clear()
+
+    # Plot gate intersections with track limits
+    keys = ['LimitLeftSoft', 'LimitRightSoft', 'LimitLeftHard', 'LimitRightHard']
+    markerList = ['<', '>', '<', '>']
+    fillList = ['none', 'none', 'full', 'full']
+    cDict = {'LimitLeftSoft': (1, 0, 0), 'LimitRightSoft': (0, 1, 0), 'LimitLeftHard': (0.5, 0, 0), 'LimitRightHard': (0, 0.5, 0)}
+    xyVec = utils.rotateVectorHeading(np.array([1, 0]), gate.AHeading)
+    lLimits = [-gate.lLimitLeftSoft, gate.lLimitRightSoft, -gate.lLimitLeftHard, gate.lLimitRightHard]
+    for j, key in enumerate(keys):
+        z = trackTest.getTrackZ(gate.xyMidpoint + (xyVec * lLimits[j]), i)
+        ax.plot(lLimits[j], z, c=cDict[key], fillstyle=fillList[j], ls='', marker=markerList[j])
+
+    lList = np.arange(np.floor(-gate.lLimitLeftHard / lResolution) * lResolution,
+                      np.ceil(gate.lLimitRightHard / lResolution) * lResolution + lResolution,
+                      lResolution)
+    indlZero = np.argmin(np.abs(lList))
+    zList = []
+    for l in lList:
+        zList.append(trackTest.getTrackZ(gate.xyMidpoint + (xyVec * l), i))
+    ax.plot(lList, zList)
+    ax.set_xlim((-xPlotRange / 2, xPlotRange / 2))
+    ax.set_ylim((zList[indlZero] - yPlotRange, zList[indlZero] + yPlotRange))
+    plt.pause(0.01)

@@ -421,12 +421,12 @@ def rotateVector3D(xyz: NDArrayFloat1D,
 
     Args:
         xyz: NumPy array in the form [x, y, z] representing the 3D vector.
-        aYaw: Yaw angle in radians to rotate the vector, anti-clockwise (follows
-            the right-hand rule). This rotation is applied first.
+        aRoll: Roll angle in radians to rotate the vector, right-side down
+            (follows the right-hand rule). This rotation is applied first.
         aPitch: Pitch angle in radians to rotate the vector, pitched down
             (follows the right-hand rule). This rotation is applied second.
-        aRoll: Roll angle in radians to rotate the vector, right-side down
-            (follows the right-hand rule). This rotation is applied last.
+        aYaw: Yaw angle in radians to rotate the vector, anti-clockwise (follows
+            the right-hand rule). This rotation is applied last.
 
     Returns:
         NumPy array representing the rotated vector, in the form [x*, y*, z*].
@@ -437,11 +437,7 @@ def rotateVector3D(xyz: NDArrayFloat1D,
     sp = np.sin(aPitch)
     cy = np.cos(aYaw)
     sy = np.sin(aYaw)
-    rotMatrix = np.array([[cy * cp,                     cy * sp * sr - sy * cr,     cy * sp * cr + sy * sr],
-                          [sy * cp,                     sy * sp * sr + cy * cr,     sy * sp * cr - cy * sr],
-                          [-sp,                         cp * sr,                    cp * cr]])
-
-    """# Above rotation matrix implementation is the combined version of this
+    """
     rotMatrixRoll = np.array([[1, 0, 0],
                               [0, cr, -sr],
                               [0, sr, cr]])
@@ -451,6 +447,11 @@ def rotateVector3D(xyz: NDArrayFloat1D,
     rotMatrixYaw = np.array([[cy, -sy, 0],
                              [sy, cy, 0],
                              [0, 0, 1]])
-    rotMatrix = np.matmul(rotMatrixYaw, np.matmul(rotMatrixPitch, rotMatrixRoll))"""
+    rotMatrix = np.matmul(rotMatrixYaw, np.matmul(rotMatrixPitch, rotMatrixRoll))
+    """
+    # More concise and faster implementation of the matrix derived above - however still keeping the commented code above for reference
+    rotMatrix = np.array([[cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+                          [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+                          [-sp, cp * sr, cp * cr]])
 
     return np.matmul(rotMatrix, xyz)

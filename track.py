@@ -64,10 +64,11 @@ CLOSED_TRACK_THRESHOLD_DISTANCE = 20            # Maximum distance (as the crow 
 HEADING_ANGLE_THRESHOLD = np.pi / 4             # Threshold for the difference in heading angles (where the difference is wrapped from -pi to pi then
                                                 # the absolute value is taken), above which to consider the heading angles as "similar"
 
-GATE_STEP_DISTANCE = 5                          # Distance between each consecutive gate for gate creation, unless overridden by an event gate or the
+GATE_STEP_DISTANCE = 10                         # Distance between each consecutive gate for gate creation, unless overridden by an event gate or the
                                                 # gate is skipped as it overlaps with neighbouring gates (m)
-                                                #  - Higher gives more resolution for determining track limits
-                                                #  - Too high may excessively slow track and trajectory generation
+                                                #  - Lower gives more resolution for determining track limits, and more robustness with exceedingly
+                                                #    narrow tracks
+                                                #  - Too low may excessively slow track and trajectory generation
 
 REDUCED_DISTANCE_WINDOW = 500                   # Window on each side for the distance bounds of the reduced coordinate array for gate creation (m)
 

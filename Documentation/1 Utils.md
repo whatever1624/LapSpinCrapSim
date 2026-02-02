@@ -71,16 +71,16 @@ Resamples the signal at the frequency specified.
 **Arguments:**
 
 - `signal`: Signal, can be temporal or spatial.
-- `tsSignal`: Temporal or spatial base that the signal was sampled on. Must be monotonically increasing.
+- `t_sSignal`: Temporal or spatial base that the signal was sampled on. Must be monotonically increasing.
 - `fResample`: Resample rate of the signal, in Hz (if temporal) or cycles/m (if spatial).
 - `BExtrapolate`: Whether to (linearly) extrapolate the signal such that the resampled signal contains the full temporal or spatial range of the original signal. If false, truncates the resampled signal at the closest resampling point to the end of the original signal.
 
 **Returns:**
 
-Tuple of (`signalResampled`, `tsResampled`).
+Tuple of (`signalResampled`, `t_sResampled`).
 
 - `signalResampled`: Resampled signal.
-- `tsResampled`: New temporal or spatial base of the resampled signal.
+- `t_sResampled`: New temporal or spatial base of the resampled signal.
 
 ## `filt()`
 
@@ -141,7 +141,7 @@ Supports both [x, y] and [x, y, z] coordinates as inputs - but does not change t
 
 **Returns:**
 
-NumPy array representing the rotated vector, in the form [x*, y*] (if provided a 2D vector) or [x*, y* z] (if provided a 3D vector).
+NumPy array representing the rotated vector, in the form [x*, y*] (if provided a 2D vector) or [x*, y*, z] (if provided a 3D vector).
 
 ## `getSideOfLine()`
 
@@ -162,6 +162,25 @@ Supports both [x, y] and [x, y, z] coordinates as inputs - but only computes in 
 >0 if the point is on the right of the line.
 
 < 0 if the point is on the left of the line.
+
+## `rotateVector3D()`
+
+Rotates a 3D vector in the form [x, y, z] by the roll, pitch and yaw angles, in that order.
+
+This uses intrinsic rotations with Tait-Bryan angles.
+
+See: https://en.wikipedia.org/wiki/Rotation_matrix#In_three_dimensions
+
+**Arguments:**
+
+- `xyz`: NumPy array in the form [x, y, z] representing the 3D vector.
+- `aRoll`: Roll angle in radians to rotate the vector, right-side down (follows the right-hand rule). This rotation is applied first.
+- `aPitch`: Pitch angle in radians to rotate the vector, pitched down (follows the right-hand rule). This rotation is applied second.
+- `aYaw`: Yaw angle in radians to rotate the vector, anti-clockwise (follows the right-hand rule). This rotation is applied last.
+
+**Returns:**
+
+NumPy array representing the rotated vector, in the form [x*, y*, z*].
 
 # Optimisation Progress Tracking (OLD)
 
