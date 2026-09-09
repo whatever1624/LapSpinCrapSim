@@ -1,3 +1,6 @@
 /.idea/
 /Dump/
-/Utils/formatNotionExports.py
+/Tracks/
+.DS_Store
+pyproject.toml
+uv.lock

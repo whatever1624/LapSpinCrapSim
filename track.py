@@ -18,7 +18,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Project python modules
-from Utils.typeAliases import Any, NDArrayFloat1D, NDArrayFloat2D
+from Utils.typealiases import Any, NDArrayFloat1D, NDArrayFloat2D
 import Utils.utils as utils
 
 # Filename constants
