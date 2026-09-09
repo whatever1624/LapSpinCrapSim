@@ -63,8 +63,8 @@ The lap sim formulation as an optimal control problem is heavily referenced from
 - **NumPy** - https://numpy.org/doc/stable/index.html
 - **SciPy** - https://docs.scipy.org/doc/scipy/
 - **Matplotlib** - https://matplotlib.org/stable/api/pyplot_summary.html
-- **PyFMI** - https://github.com/modelon-community/PyFMI
-- **cyipopt** - https://cyipopt.readthedocs.io/stable/index.html
+- **PyFMI** *(to be implemented)* - https://github.com/modelon-community/PyFMI
+- **cyipopt** *(to be implemented)* - https://cyipopt.readthedocs.io/stable/index.html
 
 ---
 
