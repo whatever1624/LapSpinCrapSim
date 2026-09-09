@@ -28,20 +28,20 @@ The lap sim formulation as an optimal control problem is heavily referenced from
 # Modules
 
 - 1 Utils
-	- [1.1 Helper Functions](1.1%20Helper%20Functions.md)
-	- [1.2 Spline Utils](1.2%20Spline%20Utils.md)
+	- [1.1 Helper Functions](Documentation/1%20Utils/1.1%20Helper%20Functions.md)
+	- [1.2 Spline Utils](Documentation/1%20Utils/1.2%20Spline%20Utils.md)
 	- 1.3 FMU Interface
 - 2 Track
-	- [2.1 Track](2.1%20Track.md)
-	- [2.2 Surface](2.2%20Surface.md)
+	- [2.1 Track](Documentation/2%20Track/2.1%20Track.md)
+	- [2.2 Surface](Documentation/2%20Track/2.2%20Surface.md)
 	- [2.3 Trajectory](2.3%20Trajectory.md)
 - 3 Component Models
 	- 3.1 Aero
 	- 3.2 Engine
-	- [3.3 Suspension](3.3%20Suspension.md)
-	- [3.4 Tyre](3.4%20Tyre.md)
+	- [3.3 Suspension](Documentation/3%20Component%20Models/3.3%20Suspension.md)
+	- [3.4 Tyre](Documentation/3%20Component%20Models/3.4%20Tyre.md)
 - 4 Vehicle Models
-	- [4.1 Point Mass](4.1%20Point%20Mass.md)
+	- [4.1 Point Mass](Documentation/4%20Vehicle%20Models/4.1%20Point%20Mass.md)
 	- 4.2 Bicycle
 	- 4.3 4-Wheel ==(rigid body without suspension/tyre compliances, rephrase it better)==
 	- 4.4 4-Wheel with Suspension
@@ -70,8 +70,8 @@ The lap sim formulation as an optimal control problem is heavily referenced from
 
 # Conventions
 
-- [Style Conventions](Style%20Conventions.md)
-- [Variable Conventions](Variable%20Conventions.md)
+- [Style Conventions](Documentation/Style%20Conventions.md)
+- [Variable Conventions](Documentation/Variable%20Conventions.md)
 
 ---
 
@@ -79,6 +79,6 @@ The lap sim formulation as an optimal control problem is heavily referenced from
 
 - Massive refactor of LITERALLY EVERYTHING, transferring from previous Notion documentation
 - Have the option of generating a trajectory from xyz coordinates (i.e. from telemetry) - will have to be heavily low-pass filtered if used for QS
-- Write up [Sim Type Wishlist](Sim%20Type%20Wishlist.md) and transfer to main documentation
+- Write up [Sim Type Wishlist](Documentation/0%20Research%20and%20Notes/Sim%20Type%20Wishlist.md) and transfer to main documentation
 - When I get to it, the FMU export (model exchange) must export with analytical jacobian
 	- Likely worth making “Reduced” (bare minimum outputs) versions of any models requiring the analytical jacobian so that the problem can be solved with the “Reduced” model which inherently should have a much smaller jacobian, then post-processed afterwards by passing the same points into the full model to get the full output
