@@ -1,10 +1,10 @@
 """
-The track module is responsible for defining the track on which a trajectory
-can be created and optimised.
+The track module is responsible for defining the track on which a trajectory can be created and optimised
 
-This includes the Track class, as well as the CoordinateArray, Event and Gate
-classes used to generate and define the track.
+This includes the Track class, as well as the CoordinateArray, Event and Gate classes used to generate and define the
+track
 """
+
 # Python standard libraries
 import os
 import json
@@ -13,13 +13,12 @@ from typing import Literal, get_args
 
 # External libraries
 import scipy
-import shapely
 import numpy as np
 import matplotlib.pyplot as plt
 
 # Project python modules
-from Utils.typealiases import Any, NDArrayFloat1D, NDArrayFloat2D
 import Utils.utils as utils
+from Utils.typealiases import Any, NDArrayFloat1D, NDArrayFloat2D
 
 # Filename constants
 TRACK_PKL_FILENAME = "Track.pkl"
@@ -161,7 +160,7 @@ class CoordinateArray:
 
         # Get the indexes that omit consecutive duplicates from the coordinate array, and remove the consecutive duplicates from the coordinate array,
         # then set the xyzCoords attribute
-        inds = utils.getIndsWithoutConsecutiveDuplicates(xyzCoords, axis=0)
+        inds = utils.get_inds_without_consecutive_duplicates(xyzCoords, axis=0)
         self.xyzCoords = xyzCoords[inds]
 
         # Generate the Shapely LineString of the coordinates in the 2D plane [x, y]
@@ -321,7 +320,7 @@ class CoordinateArray:
         # Validate that there are coordinates within the bounds specified, and remove duplicate valid indexes
         if len(indsValid) < 1:
             raise IndexError("No coordinates within the bounds specified")
-        indsValid = utils.removeConsecutiveDuplicates(sorted(indsValid))
+        indsValid = utils.remove_consecutive_duplicates(sorted(indsValid))
 
         # If the track is closed, roll the valid indexes array such that the indexes are continuously incrementing by 1, except for the wrap back to 0
         if BClosedTrack:
@@ -428,11 +427,11 @@ class CoordinateArray:
                 # Linearly interpolate the coordinate array attributes at the heading bound - note that utils.linearInterpExtrap() is used as it is
                 # faster when the function is defined only by 2 coordinates (which it has to be as AHeadingsFilt is not guaranteed to be monotonically
                 # increasing)
-                xyzBound = np.array([utils.linearInterpExtrap(AFiltBound, AFilt, xyz[:, 0]),
-                                     utils.linearInterpExtrap(AFiltBound, AFilt, xyz[:, 1]),
-                                     utils.linearInterpExtrap(AFiltBound, AFilt, xyz[:, 2])])
-                sBound = utils.linearInterpExtrap(AFiltBound, AFilt, s)
-                ABound = utils.linearInterpExtrap(AFiltBound, AFilt, A)
+                xyzBound = np.array([utils.linear_interp_extrap(AFiltBound, AFilt, xyz[:, 0]),
+                                     utils.linear_interp_extrap(AFiltBound, AFilt, xyz[:, 1]),
+                                     utils.linear_interp_extrap(AFiltBound, AFilt, xyz[:, 2])])
+                sBound = utils.linear_interp_extrap(AFiltBound, AFilt, s)
+                ABound = utils.linear_interp_extrap(AFiltBound, AFilt, A)
 
             return xyzBound, sBound, ABound, AFiltBound
 
@@ -1587,8 +1586,8 @@ class Track:
                             for yInd in yInds:
                                 xy = (xCoords[xInd], yCoords[yInd])
                                 # Check if the gate index specified is correct for the specified coordinate
-                                if (utils.getSideOfLine(xy, xyLineHalfStepPrev[0], xyLineHalfStepPrev[1])
-                                        <= 0 <= utils.getSideOfLine(xy, xyLineHalfStepNext[0], xyLineHalfStepNext[1])):
+                                if (utils.calc_side_of_line(xy, xyLineHalfStepPrev[0], xyLineHalfStepPrev[1])
+                                        <= 0 <= utils.calc_side_of_line(xy, xyLineHalfStepNext[0], xyLineHalfStepNext[1])):
                                     # Coordinate xy is between the lines xyLineHalfStepPrev and xyLineHalfStepNext
                                     z = self.mesh[indGate](xy[0], xy[1])
                                     if (np.isnan(zMap[yInd, xInd]) or TRACK_PLOT_OVERWRITE_Z) and not np.isnan(z):
@@ -2133,8 +2132,8 @@ class Track:
                   float(np.interp(sIntersectionsDict['LimitRightHard'][i],
                                   coordArraysDict['LimitRightHard'].sCoords,
                                   coordArraysDict['LimitRightHard'].xyzCoords[:, 2]))]
-            xyzGatesLeft[i][2] = utils.linearInterpExtrap(-gate.lLeft, xp, fp)
-            xyzGatesRight[i][2] = utils.linearInterpExtrap(gate.lRight, xp, fp)
+            xyzGatesLeft[i][2] = utils.linear_interp_extrap(-gate.lLeft, xp, fp)
+            xyzGatesRight[i][2] = utils.linear_interp_extrap(gate.lRight, xp, fp)
 
         # Create the track mesh, which is an array Scipy multivariate interpolators local to the area around their index's gate
         self.mesh = np.empty(nGates, dtype=scipy.interpolate.LinearNDInterpolator)
@@ -2240,10 +2239,10 @@ class Track:
         xyLineHalfStepNext = np.array(((xyGateLine[0] + xyGateLineNext[0]) / 2, (xyGateLine[1] + xyGateLineNext[1]) / 2))
 
         # Check if the gate index specified is correct for the specified coordinate
-        if utils.getSideOfLine(xy, xyLineHalfStepPrev[0], xyLineHalfStepPrev[1]) > 0 and indGate != indGatePrev:
+        if utils.calc_side_of_line(xy, xyLineHalfStepPrev[0], xyLineHalfStepPrev[1]) > 0 and indGate != indGatePrev:
             # Coordinate is behind the virtual gate at the half-step between the gate and the previous gate, use previous gate's interpolator
             z = self.getTrackZ(xy, indGatePrev, BReturnNaN)
-        elif utils.getSideOfLine(xy, xyLineHalfStepNext[0], xyLineHalfStepNext[1]) < 0 and indGate != indGateNext:
+        elif utils.calc_side_of_line(xy, xyLineHalfStepNext[0], xyLineHalfStepNext[1]) < 0 and indGate != indGateNext:
             # Coordinate is ahead of the virtual gate at the half-step between the gate and the next gate, use next gate's interpolator
             z = self.getTrackZ(xy, indGateNext, BReturnNaN)
         else:

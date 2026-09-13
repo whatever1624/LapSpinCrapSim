@@ -28,7 +28,7 @@
 
 ### Functions
 
-- `snake_case` for all function names (follows ==whatever PEP pythonic thing it is==)
+- `snake_case` for all function names (follows the specific convention from [PEP 8](https://peps.python.org/pep-0008/#function-and-variable-names))
 - Type hints for all functions
 - Docstrings for all functions
 - Newline for each argument (improves readability with type hints)

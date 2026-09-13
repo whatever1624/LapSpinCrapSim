@@ -1,5 +1,5 @@
 """
-Collection of helper functions commonly used by the other modules.
+Collection of helper functions commonly used by the other modules
 """
 
 # Python standard libraries
@@ -17,45 +17,42 @@ def wrap(x: float | NDArrayFloat1D | NDArrayFloat2D,
          lowerBound: float,
          upperBound: float) -> float | NDArrayFloat1D:
     """
-    Wraps value(s) between the lower (inclusive) and upper (exclusive) bounds.
+    Wraps value(s) between the lower (inclusive) and upper (exclusive) bounds
 
-    Supports x as a NumPy array of values to be wrapped.
+    Supports x as a NumPy array of values to be wrapped
 
     Args:
-        x: Float or NumPy array of floats to wrap.
-        lowerBound: Lower bound for the wrapping. This bound is inclusive.
-        upperBound: Upper bound for the wrapping. This bound is exclusive.
+        x: Float or NumPy array of floats to wrap
+        lowerBound: Lower bound (inclusive) for the wrapping
+        upperBound: Upper bound (exclusive) for the wrapping
 
     Returns:
-        If the argument x passed in was a float, returns the wrapped float of x.
+        If the argument x passed in was a float, returns the wrapped float of x
 
-        If the argument x passed in was a NumPy array of floats, returns an
-        array of floats in same shape where each element is wrapped.
+        If the argument x passed in was a NumPy array of floats, returns an array of floats in same shape where each
+        element is wrapped.
     """
     return lowerBound + ((x - lowerBound) % (upperBound - lowerBound))
 
 
-def linearInterpExtrap(x: float,
-                       xp: list[float] | NDArrayNumber1D,
-                       fp: list[float] | NDArrayNumber1D) -> float:
+def linear_interp_extrap(x: float,
+                         xp: list[float] | NDArrayNumber1D,
+                         fp: list[float] | NDArrayNumber1D) -> float:
     """
-    Linearly interpolate or extrapolate at the point x from the closest 2 data
-    points defined by xp, fp.
+    Linearly interpolate or extrapolate at the point x from the closest 2 data points defined by xp, fp
 
-    Able to compute linear extrapolation unlike NumPy interp(). For computing
-    single points, faster than NumPy interp() if there is a reasonable chance
-    (>15%) that the point will be calculated using the first pair or last pair
-    of data points.
+    Able to compute linear extrapolation unlike NumPy interp()
+    For computing single points, faster than NumPy interp() if there is a reasonable chance (>15%) that the point will
+    be calculated using the first or last pair of data points
 
     Args:
         x: x coordinate to evaluate the extrapolated function
-        xp: x coordinates of the function. Must contain 2 or more elements and
-            be monotonically increasing (though not validated explicitly).
-        fp: Function values corresponding to the x coordinates of xp. Must be
-            the same size as xp.
+        xp: x coordinates of the function. Must contain 2 or more elements and be monotonically increasing (though not
+            validated explicitly)
+        fp: Function values corresponding to the x coordinates of xp, must be the same size as xp
 
     Returns:
-        Extrapolated function value at point x.
+        Extrapolated function value at point x
     """
     # Find the 2 data points to use for the linear extrapolation
     if x <= xp[1]:
@@ -72,84 +69,44 @@ def linearInterpExtrap(x: float,
     return fp[0] + (x - xp[0]) * (fp[1] - fp[0]) / (xp[1] - xp[0])
 
 
-def getHeading(xy_xyz: NDArrayFloat1D | NDArrayFloat2D) -> float | NDArrayFloat1D:
-    """
-    Calculates the heading angle(s) of the vector(s), only in the [x, y] plane.
-
-    Supports xy_xyz as a NumPy array of coordinates.
-
-    Args:
-        xy_xyz: Vector or NumPy array of vectors, where each vector is in the
-            form [x, y] or [x, y, z].
-
-    Returns:
-        Heading angle (if xy_xyz was a 1D array) or NumPy array of heading
-        angles (if xy_xyz was a 2D array). The heading angle is from -pi to pi
-        radians, increasing clockwise with 0 corresponding to the direction
-        [0, 1].
-
-    Raises:
-        ValueError: If the argument xy_xyz doesn’t have a dimension of 1 or 2.
-    """
-
-    # Get x and y coordinates
-    ndim = xy_xyz.ndim
-    if ndim == 1:
-        x = xy_xyz[0]
-        y = xy_xyz[1]
-    elif ndim == 2:
-        x = xy_xyz[:, 0]
-        y = xy_xyz[:, 1]
-    else:
-        raise ValueError(f"Invalid argument xy_xyz of dimension {ndim}: must be 1D or 2D")
-
-    # Calculate heading angle(s)
-    AHeading = np.arctan2(x, y)
-
-    return AHeading
-
-
 def resample(signal: list[float] | NDArrayFloat1D,
-             t_sSignal: list[float] | NDArrayFloat1D,
+             signalBase: list[float] | NDArrayFloat1D,
              fResample: float,
              BExtrapolate: bool = False) -> tuple[NDArrayFloat1D, NDArrayFloat1D]:
     """
-    Resamples the signal at the frequency specified.
+    Resamples the signal at the frequency specified
 
     Args:
-        signal: Signal, can be temporal or spatial.
-        t_sSignal: Temporal or spatial base that the signal was sampled on. Must
-            be monotonically increasing.
-        fResample: Resample rate of the signal, in Hz (if temporal) or cycles/m
-            (if spatial).
-        BExtrapolate: Whether to (linearly) extrapolate the signal such that the
-            resampled signal contains the full temporal or spatial range of the
-            original signal. If false, truncates the resampled signal at the
-            closest resampling point to the end of the original signal.
+        signal: Signal, can be temporal or spatial
+        signalBase: Base that the signal was sampled on (usually temporal or spatial), must be monotonically increasing
+        fResample: Resample rate of the signal, in Hz (if temporal) or cycles/m (if spatial)
+        BExtrapolate: Whether to (linearly) extrapolate the signal such that the resampled signal contains the full
+            temporal or spatial range of the original signal
+            If false, truncates the resampled signal at the closest resampling point to the end of the original signal
 
     Returns:
-        Tuple of (signalResampled, tsResampled).
+        Tuple of (signalResampled, resampledBase)
 
-        signalResampled: Resampled signal.
+        signalResampled: Resampled signal
 
-        tsResampled: New temporal or spatial base of the resampled signal.
+        resampledBase: New base of the resampled signal
     """
     # Create the new base of the resampled signal, only in the interpolating region
-    dt_dsResample = 1 / fResample
-    t_sResampled = np.arange(t_sSignal[0], t_sSignal[-1], dt_dsResample)
-    t_sResampledNext = t_sResampled[-1] + dt_dsResample
-    if t_sResampledNext < t_sSignal[-1]:
-        t_sResampled = np.append(t_sResampled, t_sResampledNext)
+    dResample = 1 / fResample
+    resampledBase = np.arange(signalBase[0], signalBase[-1], dResample)
+    resampledBaseNext = resampledBase[-1] + dResample
+    if resampledBaseNext < signalBase[-1]:
+        resampledBase = np.append(resampledBase, resampledBaseNext)
 
     # Resample the signal
-    signalResampled = np.interp(t_sResampled, t_sSignal, signal)
+    signalResampled = np.interp(resampledBase, signalBase, signal)
 
     # Calculate the signal extrapolation
     if BExtrapolate:
-        t_sResampled = np.append(t_sResampled, t_sResampledNext)
-        signalResampled = np.append(signalResampled, linearInterpExtrap(t_sResampledNext, t_sSignal, signal))
+        resampledBase = np.append(resampledBase, resampledBaseNext)
+        signalResampled = np.append(signalResampled, linear_interp_extrap(resampledBaseNext, signalBase, signal))
 
-    return signalResampled, t_sResampled
+    return signalResampled, resampledBase
 
 
 def filt(signal: list[float] | NDArrayFloat1D,
@@ -158,31 +115,28 @@ def filt(signal: list[float] | NDArrayFloat1D,
          fCutoff: float | list[float] | NDArrayFloat1D,
          nOrder: int) -> NDArrayFloat1D:
     """
-    Filters the signal using a Butterworth filter.
+    Filters the signal using a Butterworth filter
 
     Args:
-        signal: Signal, can be temporal or spatial, but must be sampled at
-            regular intervals.
-        fSample: Sample rate of the signal in Hz (if temporal) or cycles/m
-            (if spatial).
-        filtType: Type of filter, must be one of the strings supported by the
-            btype argument for the SciPy butter() function - but to simplify,
-            the options are 'low', 'high', 'bandpass', 'bandstop'.
-        fCutoff: Cutoff frequency (if low or high-pass filter) or frequencies in
-            the form [fCutoffLow, fCutoffHigh] (if band-pass or band-stop
-            filter). In Hz (if temporal) or cycles/m (if spatial).
-        nOrder: Order of the filter.
+        signal: Signal, can be temporal or spatial, but must be sampled at regular intervals
+        fSample: Sample rate of the signal in Hz (if temporal) or cycles/m (if spatial)
+        filtType: Type of filter, must be one of the strings supported by the btype argument for the SciPy butter()
+            function - but to simplify, the options are 'low', 'high', 'bandpass', 'bandstop'
+        fCutoff: Cutoff frequency (if low or high-pass filter) or frequencies in the form [fCutoffLow, fCutoffHigh]
+            (if band-pass or band-stop filter)
+            In Hz (if temporal) or cycles/m (if spatial)
+        nOrder: Order of the filter
 
     Returns:
-        Filtered signal, as a NumPy array.
+        Filtered signal, as a NumPy array
     """
     # Calculate the filter padlen as the number of samples in 5 cycles of the (lowest) cutoff frequency
-    # This is to avoid flattened artifacts at the start/end of the signal with a low-pass filter
+    # This is to avoid flattened artefacts at the start/end of the signal with a low-pass filter
     fCutoffLower = fCutoff if np.isscalar(fCutoff) else min(fCutoff)
     padlen = int(min(np.ceil(5 * fSample / fCutoffLower), len(signal) - 1))
 
-    # If there is a low-pass component to the filter, set the first and last points to the average of the first/last half-cycle at the cutoff
-    # frequency
+    # If there is a low-pass component to the filter, set the first and last points to the average of the first/last
+    # half-cycle at the cutoff frequency
     if 'h' not in filtType:
         nPoints = min(int(fSample / fCutoffLower / 2), len(signal))
         signal[0] = np.mean(signal[:nPoints])
@@ -195,21 +149,17 @@ def filt(signal: list[float] | NDArrayFloat1D,
     return signalFilt
 
 
-def getIndsWithoutConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, ...], np.dtype[Any]],
-                                        axis: int = -1) -> np.ndarray[tuple[Any, ...], np.dtype[np.integer]]:
+def get_inds_without_consecutive_duplicates(arr: list[Any] | np.ndarray[tuple[Any, ...], np.dtype[Any]],
+                                            axis: int = -1) -> np.ndarray[tuple[Any, ...], np.dtype[np.integer]]:
     """
-    Returns the indexes of the array that omit elements that would cause
-    consecutive duplicates.
+    Returns the indexes of the array that omit elements that would cause consecutive duplicates
 
     Args:
-        arr: List or array. Data type must be compatible with the NumPy function
-            diff().
-        axis: Axis along which to check for consecutive duplicates, defaults to
-            the last axis.
+        arr: List or array, where the data type must be compatible with the NumPy function diff()
+        axis: Axis along which to check for consecutive duplicates, defaults to the last axis
 
     Returns:
-        Array with the indexes that omit elements causing consecutive duplicates
-        along the axis specified.
+        Array with the indexes that omit elements causing consecutive duplicates along the axis specified
     """
     diff = np.diff(arr, axis=axis).astype(np.bool)
     if diff.ndim > 1:
@@ -217,106 +167,74 @@ def getIndsWithoutConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, .
     return np.append(0, np.where(diff)[0] + 1)
 
 
-def removeConsecutiveDuplicates(arr: list[Any] | np.ndarray[tuple[Any, ...], np.dtype[Any]],
-                                axis: int = -1) -> np.ndarray[tuple[Any, ...], np.dtype[Any]]:
+def remove_consecutive_duplicates(arr: list[Any] | np.ndarray[tuple[Any, ...], np.dtype[Any]],
+                                  axis: int = -1) -> np.ndarray[tuple[Any, ...], np.dtype[Any]]:
     """
-    Returns the array with consecutive duplicates removed along the axis
-    specified.
+    Returns the array with consecutive duplicates removed along the axis specified
 
-    Effectively a wrapper around getIndsWithoutConsecutiveDuplicates().
+    Effectively a wrapper around getIndsWithoutConsecutiveDuplicates()
 
     Args:
-        arr: List or array. Data type must be compatible with the NumPy function
-            diff().
-        axis: Axis along which to check for consecutive duplicates, defaults to
-            the last axis.
+        arr: List or array, where the data type must be compatible with the NumPy function diff()
+        axis: Axis along which to check for consecutive duplicates, defaults to the last axis
 
     Returns:
-        Array with the consecutive duplicates removed along the axis specified.
+        Array with the consecutive duplicates removed along the axis specified
     """
-    return np.array(arr)[getIndsWithoutConsecutiveDuplicates(arr, axis)]
+    return np.array(arr)[get_inds_without_consecutive_duplicates(arr, axis)]
 
 
-def rotateVectorHeading(xy_xyz: list[float] | NDArrayFloat1D,
-                        theta: float) -> NDArrayFloat1D:
+def calc_side_of_line(xyPoint: list[float] | NDArrayFloat1D | tuple[float, float],
+                      xyLineStart: NDArrayFloat1D,
+                      xyLineEnd: NDArrayFloat1D) -> float:
     """
-    Rotates the vector clockwise in the 2D plane [x, y] by theta radians.
+    Finds which side of the line that the specified point is
 
-    Supports both [x, y] and [x, y, z] coordinates as inputs - but does not
-    change the z component of the vector even if provided.
+    Supports both [x, y] and [x, y, z] coordinates as inputs - but only computes in the 2D [x, y] plane
 
     Args:
-        xy_xyz: NumPy array in the form [x, y] or [x, y, z] representing the
-            2D vector.
-        theta: Angle in radians to rotate the vector, clockwise on the 2D plane
-            [x, y].
+        xyPoint: Coordinate of the point, where index 0 is x and index 1 is y
+        xyLineStart: Coordinate of the start of the line, where index 0 is x and index 1 is y
+        xyLineEnd: Coordinate of the end of the line, where index 0 is x and index 1 is y
 
     Returns:
-        NumPy array representing the rotated vector, in the form [x*, y*] (if
-            provided a 2D vector) or [x*, y*, z] (if provided a 3D vector).
+        0 if all coordinates are collinear (on the same straight line)
+
+        >0 if the point is on the right of the line
+
+        < 0 if the point is on the left of the line
     """
-    c = np.cos(theta)
-    s = np.sin(theta)
-    xy_xyzRotated = np.array(xy_xyz, dtype=float)
-    xy_xyzRotated[0] = (c * xy_xyz[0]) + (s * xy_xyz[1])
-    xy_xyzRotated[1] = -(s * xy_xyz[0]) + (c * xy_xyz[1])
-    return xy_xyzRotated
+    return (((xyPoint[0] - xyLineStart[0]) * (xyLineEnd[1] - xyLineStart[1]))
+            - ((xyPoint[1] - xyLineStart[1]) * (xyLineEnd[0] - xyLineStart[0])))
 
 
-def getSideOfLine(xy_xyzPoint: list[float] | NDArrayFloat1D | tuple[float, float],
-                  xy_xyzLineStart: NDArrayFloat1D,
-                  xy_xyzLineEnd: NDArrayFloat1D) -> float:
+def convert_units(data: float | NDArrayFloat1D,
+                  currentUnit: str,
+                  newUnit: str = '') -> float | NDArrayFloat1D:
     """
-    Finds which side of the line that the specified point is.
-
-    Supports both [x, y] and [x, y, z] coordinates as inputs - but only computes
-    in the 2D [x, y] plane.
+    Convert data between units
 
     Args:
-        xy_xyzPoint: Coordinate of the point, in the form [x, y] or [x, y, z].
-        xy_xyzLineStart: Coordinate of the start of the line, in the form [x, y]
-            or [x, y, z].
-        xy_xyzLineEnd: Coordinate of the end of the line, in the form [x, y] or
-            [x, y, z].
+        data: Data to convert between units
+        currentUnit: Unit of the data passed in
+        newUnit: Unit to convert the data to - uses the SI unit if not provided
 
     Returns:
-        0 if all coordinates are collinear (on the same straight line).
-
-        >0 if the point is on the right of the line.
-
-        < 0 if the point is on the left of the line.
-    """
-    return (((xy_xyzPoint[0] - xy_xyzLineStart[0]) * (xy_xyzLineEnd[1] - xy_xyzLineStart[1]))
-            - ((xy_xyzPoint[1] - xy_xyzLineStart[1]) * (xy_xyzLineEnd[0] - xy_xyzLineStart[0])))
-
-def convertUnits(data: float | NDArrayFloat1D,
-                 currentUnit: str,
-                 newUnit: str = '') -> float | NDArrayFloat1D:
-    """
-    Convert data between units.
-
-    Args:
-        data: Data to convert between units.
-        currentUnit: Unit of the data passed in.
-        newUnit: Unit to convert the data to. If not provided, uses the SI unit.
-
-    Returns:
-        Data converted to the new unit. This will be a float if the argument
-        data passed in was a float, or a 1D NumPy array of floats if the
-        argument data passed in was a 1D NumPy array of floats.
+        Data converted to the new unit
+        This will be a float if the argument data passed in was a float, or a 1D NumPy array of floats if the argument
+        data passed in was a 1D NumPy array of floats
 
     Raises:
-        ValueError1: If the 'currentUnit' argument is blank but the 'newUnit'
-            argument is not blank.
-        ValueError2: If the 'newUnit' argument is not found in the conversion
-            dictionary matching the 'currentUnit' argument.
-        ValueError3: If the 'currentUnit' argument is not found in any of the
-            conversion dictionaries.
+        ValueError1: 'newUnit' argument provided as '{newUnit}' but 'currentUnit' argument is blank
+        ValueError2: 'newUnit' argument of '{newUnit}' not supported for 'currentUnit' argument of '{currentUnit}'
+        ValueError3: '{currentUnit}' is not a supported unit by the convertUnits() function
     """
     # Each value in this dictionary is itself a dictionary, where each key-value pair is the unit and conversion
-    # The conversion is a tuple in the form (multiplier, offset), which applied as (data * multiplier) + offset, converts from the unit to SI
+    # The conversion is a tuple in the form (multiplier, offset), which applied as (data * multiplier) + offset,
+    # converts from the unit to SI
     # The SI unit will always have the conversion (1, 0)
-    # The nested dictionaries are ordered such that SI units/SI prefixes are first, and then ordered by the conversion factor
+    # The nested dictionaries are ordered such that SI units/SI prefixes are first,
+    # and then ordered by the conversion factor
     SI = (1, 0)
     conversionsDict: dict[str, dict[str, tuple[float, float]]] = {
         'Angle': {'rad': SI,
@@ -398,46 +316,49 @@ def convertUnits(data: float | NDArrayFloat1D,
             if newUnit == '':
                 return data
 
-            # Get the conversion to the new unit and convert the data to the new unit if the conversion was found, otherwise raise an error
+            # Get the conversion to the new unit and convert the data to the new unit if the conversion was found,
+            # otherwise raise an error
             multiplier, offset = conversionDict.get(newUnit, (None, None))
             if multiplier is not None and offset is not None:
                 return (data - offset) / multiplier
             else:
-                raise ValueError(f"'newUnit' argument of '{newUnit}' not supported for 'currentUnit' argument of '{currentUnit}'")
+                raise ValueError(f"'newUnit' argument of '{newUnit}' not supported for 'currentUnit' argument of " +
+                                 f"'{currentUnit}'")
 
     # Match not found for the currentUnit argument
     raise ValueError(f"'{currentUnit}' is not a supported unit by the convertUnits() function")
 
-def rotateVector3D(xyz: NDArrayFloat1D,
-                   aRoll: float,
-                   aPitch: float,
-                   aYaw: float) -> NDArrayFloat1D:
-    """
-    Rotates a 3D vector in the form [x, y, z] by the roll, pitch and yaw angles,
-    in that order.
 
-    This uses intrinsic rotations with Tait-Bryan angles.
+def rotate_vector_3D(xyz: NDArrayFloat1D,
+                     ARoll: float,
+                     APitch: float,
+                     AYaw: float) -> NDArrayFloat1D:
+    """
+    Rotates a 3D vector in the form [x, y, z] by the roll, pitch and yaw angles, in that order
+
+    This uses intrinsic rotations with Tait-Bryan angles
     See: https://en.wikipedia.org/wiki/Rotation_matrix#In_three_dimensions
 
     Args:
-        xyz: NumPy array in the form [x, y, z] representing the 3D vector.
-        aRoll: Roll angle in radians to rotate the vector, right-side down
-            (follows the right-hand rule). This rotation is applied first.
-        aPitch: Pitch angle in radians to rotate the vector, pitched down
-            (follows the right-hand rule). This rotation is applied second.
-        aYaw: Yaw angle in radians to rotate the vector, anti-clockwise (follows
-            the right-hand rule). This rotation is applied last.
+        xyz: NumPy array in the form [x, y, z] representing the 3D vector
+        ARoll: Roll angle in radians to rotate the vector, right-side down (follows the right-hand rule)
+            This rotation is applied first
+        APitch: Pitch angle in radians to rotate the vector, pitched down (follows the right-hand rule)
+            This rotation is applied second
+        AYaw: Yaw angle in radians to rotate the vector, anti-clockwise (follows the right-hand rule)
+            This rotation is applied last
 
     Returns:
-        NumPy array representing the rotated vector, in the form [x*, y*, z*].
+        NumPy array representing the rotated vector, in the form [x*, y*, z*]
     """
-    cr = np.cos(aRoll)
-    sr = np.sin(aRoll)
-    cp = np.cos(aPitch)
-    sp = np.sin(aPitch)
-    cy = np.cos(aYaw)
-    sy = np.sin(aYaw)
+    cr = np.cos(ARoll)
+    sr = np.sin(ARoll)
+    cp = np.cos(APitch)
+    sp = np.sin(APitch)
+    cy = np.cos(AYaw)
+    sy = np.sin(AYaw)
     """
+    # Separated rotation matrices for debugging
     rotMatrixRoll = np.array([[1, 0, 0],
                               [0, cr, -sr],
                               [0, sr, cr]])
@@ -449,7 +370,8 @@ def rotateVector3D(xyz: NDArrayFloat1D,
                              [0, 0, 1]])
     rotMatrix = np.matmul(rotMatrixYaw, np.matmul(rotMatrixPitch, rotMatrixRoll))
     """
-    # More concise and faster implementation of the matrix derived above - however still keeping the commented code above for reference
+    # More concise and faster implementation of the matrix derived above
+    # However, still keeping the commented code above for reference
     rotMatrix = np.array([[cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
                           [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
                           [-sp, cp * sr, cp * cr]])

@@ -5,7 +5,7 @@
 **GitHub Repo:** https://github.com/whatever1624/LapSpinCrapSim
 
 > [!tip] First GitHub repo yippee!! 
-> This is a solo project which I started at the start of the 2025 F1 summer shutdown as a passion project (also to learn how to use Git but that got procrastinated to weeks after shutdown), and I’ve been working on it sporadically since then.
+> This is a solo project which I started at the start of the 2025 F1 summer shutdown as a passion project (also to learn how to use Git but that got procrastinated to weeks after shutdown), and I’ve been working on it sporadically since then
 > 
 > The goal of this project is to be able to optimise trajectory, energy management, setup, and other parameters, using an optimal control problem formulation
 > 
@@ -29,7 +29,7 @@ The lap sim formulation as an optimal control problem is heavily referenced from
 
 - 1 Utils
 	- [1.1 Helper Functions](Documentation/1%20Utils/1.1%20Helper%20Functions.md)
-	- [1.2 Spline Utils](Documentation/1%20Utils/1.2%20Spline%20Utils.md)
+	- [1.2 Spline Wrappers](Documentation/1%20Utils/1.2%20Spline%20Wrappers.md)
 	- 1.3 FMU Interface
 - 2 Track
 	- [2.1 Track](Documentation/2%20Track/2.1%20Track.md)
@@ -78,6 +78,7 @@ The lap sim formulation as an optimal control problem is heavily referenced from
 # To Do
 
 - Massive refactor of LITERALLY EVERYTHING, transferring from previous Notion documentation
+- Most (or all?) of my coordinate systems are based on the ISO vehicle coordinates, so probably have a read of it https://www.iso.org/obp/ui/en/#iso:std:iso:8855:ed-2:v1:en
 - Have the option of generating a trajectory from xyz coordinates (i.e. from telemetry) - will have to be heavily low-pass filtered if used for QS
 - Write up [Sim Type Wishlist](Documentation/0%20Research%20and%20Notes/Sim%20Type%20Wishlist.md) and transfer to main documentation
 - When I get to it, the FMU export (model exchange) must export with analytical jacobian

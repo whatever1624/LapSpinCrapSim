@@ -1,6 +1,7 @@
 /.idea/
 /Dump/
 /Tracks/
+*__pycache__
 .DS_Store
 pyproject.toml
 uv.lock
